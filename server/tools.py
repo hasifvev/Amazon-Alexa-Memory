@@ -137,32 +137,66 @@ def _matches(memory: Memory, subject: str) -> bool:
 class MemoryTools:
     """Everything Alexa+ can do with the memory, as spoken answers."""
 
-    def __init__(self, store: MemoryStore, *, subject: str = "default") -> None:
+    def __init__(
+        self,
+        store: MemoryStore,
+        *,
+        subject: str = "default",
+        utc_offset_hours: float = 8.0,
+    ) -> None:
         self.store = store
         self.subject = subject
+        # The listener's local offset, never the host's. A server briefing
+        # somebody in another timezone must use their hour.
+        self.utc_offset_hours = utc_offset_hours
 
     # -- the headline ---------------------------------------------------
 
-    def catch_me_up(self, *, named: bool = False) -> str:
-        """The wake. What is true, what changed, what is still open."""
+    def catch_me_up(self, *, named: bool = False, hour: int | None = None) -> str:
+        """The wake. What is true, what changed, what is still open.
+
+        ``hour`` pretends it is a different time of day, which is how the demo
+        shows that the briefing genuinely reprioritises rather than restyles.
+        It shifts the clock only; nothing about the memory changes.
+        """
+        moment = _now()
+        if hour is not None:
+            local = moment.astimezone(timezone(timedelta(hours=self.utc_offset_hours)))
+            moment = local.replace(hour=hour % 24, minute=0, second=0, microsecond=0)
+
         briefing = wake(
             self.store,
             trigger=Trigger.NAMED if named else Trigger.SESSION,
             subject=self.subject,
+            now=moment,
+            utc_offset_hours=self.utc_offset_hours,
         )
-        changes = briefing.items.get("changed", [])
-        open_items = briefing.items.get("open", [])
+        # The wake ends a truncated list with "...and N more", which is right in
+        # writing and nonsense read aloud. Strip it and fold the count into the
+        # spoken tail instead.
+        def _real(items: list[str]) -> tuple[list[str], int]:
+            hidden = 0
+            kept = []
+            for item in items:
+                if item.startswith("...and ") and item.endswith(" more"):
+                    hidden += int(item.split()[1]) if item.split()[1].isdigit() else 0
+                    continue
+                kept.append(item)
+            return kept, hidden
+
+        changes, changes_hidden = _real(briefing.items.get("changed", []))
+        open_items, open_hidden = _real(briefing.items.get("open", []))
         parts: list[str] = []
 
         if changes:
             spoken = [_speak_change(c) for c in changes[:MAX_SPOKEN_ITEMS]]
-            extra = len(changes) - len(spoken)
+            extra = len(changes) - len(spoken) + changes_hidden
             tail = f", and {_plural(extra, 'other change')}" if extra > 0 else ""
             parts.append(f"Since we last spoke, {_join(spoken)}{tail}.")
 
         if open_items:
             spoken = open_items[:MAX_SPOKEN_ITEMS]
-            extra = len(open_items) - len(spoken)
+            extra = len(open_items) - len(spoken) + open_hidden
             tail = f", plus {_plural(extra, 'other')}" if extra > 0 else ""
             parts.append(f"Still open: {_join(spoken)}{tail}.")
 
@@ -294,11 +328,14 @@ class MemoryTools:
 
         changes: list[str] = []
         for memory in self.store.all():
-            if memory.subject != self.subject or memory.id in successors:
+            if memory.subject != self.subject:
                 continue
 
             replacement_id = self.store.superseded_by(memory.id)
             if replacement_id:
+                # Considered even when this memory is itself a successor: in a
+                # chain A->B->C, skipping every successor loses the B->C edge,
+                # which is the most recent change and the one worth hearing.
                 successor = self.store.get(replacement_id)
                 if successor and parse_when(successor.asserted_at) >= start:
                     changes.append(f"{successor.text}, which was {memory.text}")
@@ -307,6 +344,9 @@ class MemoryTools:
             retraction = self.store.retraction(memory.id)
             if retraction and parse_when(retraction.at) >= start:
                 changes.append(f"I withdrew that {memory.text}")
+                continue
+
+            if memory.id in successors:
                 continue
 
             if parse_when(memory.asserted_at) >= start:

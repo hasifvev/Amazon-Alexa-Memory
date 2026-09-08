@@ -38,6 +38,7 @@ from server.tools import MemoryTools
 # Where the memory lives. One file, on your machine, in a format you can read
 # with `cat`. That is the product position, not an implementation detail.
 STORE_PATH = Path(os.environ.get("MEMORY_STORE", "data/memory.jsonl"))
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 SERVER_NAME = "Memory"
 SERVER_INSTRUCTIONS = (
@@ -69,6 +70,7 @@ def _security_settings() -> TransportSecuritySettings:
 def build_server(store_path: Path | None = None) -> FastMCP:
     """Construct the MCP server with the memory tools registered."""
     store = MemoryStore(store_path or STORE_PATH)
+    _ensure_seeded(store)
     tools = MemoryTools(store)
 
     mcp = FastMCP(
@@ -80,9 +82,15 @@ def build_server(store_path: Path | None = None) -> FastMCP:
         transport_security=_security_settings(),
     )
 
-    @mcp.tool(description="Catch up on what is new, what changed, and what is still open.")
-    def catch_me_up(full: bool = False) -> str:
-        return tools.catch_me_up(named=full)
+    @mcp.tool(
+        description=(
+            "Catch up on what is new, what changed, and what is still open. "
+            "Optionally pretend it is a given hour of day, to hear how the "
+            "briefing reprioritises."
+        )
+    )
+    def catch_me_up(full: bool = False, hour: int | None = None) -> str:
+        return tools.catch_me_up(named=full, hour=hour)
 
     @mcp.tool(description="Remember a new fact.")
     def remember(fact: str, tags: list[str] | None = None) -> str:
@@ -120,7 +128,39 @@ def build_server(store_path: Path | None = None) -> FastMCP:
     def what_changed(since: str = "7 days ago") -> str:
         return tools.what_changed(since)
 
+    # -- the simulated Alexa+ experience ---------------------------------
+    #
+    # Amazon permits a simulated experience in place of a certified add-on.
+    # This is that simulation, and it is deliberately not a mock: the page is
+    # an MCP client that speaks the real protocol to the server above, over the
+    # same /mcp endpoint an Alexa+ device would use. Judges can watch the
+    # JSON-RPC traffic in the page.
+
+    @mcp.custom_route("/", methods=["GET"])
+    async def index(_request):
+        from starlette.responses import FileResponse
+
+        return FileResponse(WEB_DIR / "index.html")
+
+    @mcp.custom_route("/api/seed", methods=["POST"])
+    async def reseed(_request):
+        from starlette.responses import JSONResponse
+
+        from server.demo import reset
+
+        fresh = reset(store.path)
+        tools.store = fresh
+        return JSONResponse({"seeded": len(fresh)})
+
     return mcp
+
+
+def _ensure_seeded(store: MemoryStore) -> None:
+    """A demo that opens on an empty store demonstrates nothing about time."""
+    if len(store) == 0:
+        from server.demo import seed
+
+        seed(store)
 
 
 app = build_server().streamable_http_app()
