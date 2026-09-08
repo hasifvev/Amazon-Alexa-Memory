@@ -203,6 +203,7 @@ const SUGGESTIONS = [
   "when does the office close?",
   "change standup to nine forty five",
   "what's changed lately?",
+  "what have I been wrong about?",
 ];
 
 function packet(dir, label, body, extra) {
@@ -299,6 +300,9 @@ function route(said) {
 
   if (/^(catch me up|good morning|hello|hi|wake up)/.test(s))
     return {tool: "catch_me_up", args: {full: /full|everything/.test(s)}};
+
+  if (/wrong about|been wrong|mistakes?/.test(s))
+    return {tool: "wrong_about", args: {}};
 
   if (/what.*(changed|new)/.test(s))
     return {tool: "what_changed", args: {since: "14 days ago"}};

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from core.store import Memory, MemoryStore
+from core.store import Kind, Memory, MemoryStore
 from server.tools import MemoryTools, parse_when
 
 NOW = datetime(2026, 9, 8, 12, 0, tzinfo=timezone.utc)
@@ -182,3 +182,99 @@ def test_the_tool_path_stays_well_under_the_500ms_budget(tools):
     elapsed_ms = (time.perf_counter() - started) * 1000
 
     assert elapsed_ms < 100, f"tools took {elapsed_ms:.0f}ms of the 500ms budget"
+
+
+# -- déjà vu ---------------------------------------------------------------
+
+
+def test_asking_twice_with_an_unchanged_answer_says_nothing_extra(tools):
+    """Noting that you repeated yourself is an observation about you, not a useful one."""
+    tools.remember("the standup is at nine")
+    first = tools.recall("standup")
+    second = tools.recall("standup")
+    assert "You asked me this" not in second
+    assert first.rstrip(".") in second or "nine" in second
+
+
+def test_asking_again_after_the_answer_changed_volunteers_the_earlier_ask(tools):
+    """The déjà vu moment: you asked before, and it was different then."""
+    store = tools.store
+    old = store.add(
+        Memory(text="the standup is at nine", asserted_at=ago(200), valid_from=ago(200))
+    )
+    tools.store.add(
+        Memory(
+            text="you asked about standup",
+            kind=Kind.EVENT,
+            source="alexa",
+            asserted_at=ago(150),
+            valid_from=ago(150),
+            tags=("asked", tools._topic_key("standup")),
+        )
+    )
+    store.supersede(
+        old.id,
+        Memory(text="the standup is at ten", asserted_at=ago(10), valid_from=ago(10)),
+        at=ago(10),
+    )
+
+    reply = tools.recall("standup")
+    assert "You asked me this on" in reply
+    assert "nine" in reply, "must say what the answer was at the time of the earlier ask"
+
+
+def test_questions_do_not_pollute_the_standing_facts(tools):
+    """The ask log lives in the same store; it must not read as a known fact."""
+    tools.remember("the standup is at nine")
+    tools.recall("standup")
+    tools.recall("standup")
+    assert "you asked about" not in tools.catch_me_up()
+
+
+def test_repeated_questions_in_the_same_second_are_distinct_events(tools):
+    """Facts dedup within a second by design; questions must not."""
+    tools.remember("the standup is at nine")
+    for _ in range(4):
+        tools.recall("standup")
+    assert len(tools._prior_asks("standup")) >= 4
+
+
+# -- what have I been wrong about ------------------------------------------
+
+
+def test_wrong_about_on_a_clean_record(tools):
+    tools.remember("the standup is at nine")
+    assert "haven't withdrawn anything" in tools.wrong_about()
+
+
+def test_wrong_about_reports_how_long_the_belief_was_held(tools):
+    """The number no competitor can produce: they delete what they retract."""
+    store = tools.store
+    m = store.add(
+        Memory(text="the office closes at six", asserted_at=ago(150), valid_from=ago(150))
+    )
+    store.retract(m.id, "you told me it is seven", at=ago(5))
+
+    reply = tools.wrong_about()
+    assert "145 days" in reply, reply
+    assert "office closes at six" in reply
+
+
+def test_wrong_about_leads_with_the_longest_held_mistake(tools):
+    store = tools.store
+    brief_error = store.add(Memory(text="bin day is Monday", asserted_at=ago(9), valid_from=ago(9)))
+    store.retract(brief_error.id, "it is Tuesday", at=ago(8))
+    long_error = store.add(Memory(text="the office closes at six", asserted_at=ago(200), valid_from=ago(200)))
+    store.retract(long_error.id, "it is seven", at=ago(2))
+
+    reply = tools.wrong_about()
+    assert reply.index("office") < reply.index("bin day"), (
+        "the belief carried for months matters more than the one fixed overnight"
+    )
+
+
+def test_a_superseded_fact_is_not_a_mistake(tools):
+    """Changing is not being wrong. The distinction is the whole design."""
+    tools.remember("the standup is at nine")
+    tools.correct("standup", "the standup is at ten")
+    assert "haven't withdrawn anything" in tools.wrong_about()

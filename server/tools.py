@@ -22,7 +22,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 
-from core.store import Memory, MemoryStore
+from core.insight import churn, mistakes
+from core.store import Kind, Memory, MemoryStore
 from core.tiers import Trigger
 from core.wake import wake
 
@@ -272,7 +273,16 @@ class MemoryTools:
             return str(exc)
 
         asking_about_past = when is not None and moment < _now() - timedelta(hours=1)
-        found = [m for m in self.store.as_of(valid=moment) if _matches(m, about)]
+
+        # Check before logging, or this very question counts as a prior ask.
+        prior = self._prior_asks(about)
+        self._log_ask(about)
+
+        found = [
+            m
+            for m in self.store.as_of(valid=moment)
+            if _matches(m, about) and m.kind is not Kind.EVENT
+        ]
 
         if not found:
             ever = [m for m in self.store.all() if _matches(m, about)]
@@ -307,8 +317,8 @@ class MemoryTools:
             )
             return _sentence(
                 f"{spoken}. That changed{when_text} — before, {previous.text}"
-            )
-        return _sentence(spoken)
+            ) + self._deja_vu(about, prior)
+        return _sentence(spoken) + self._deja_vu(about, prior)
 
     def what_changed(self, since: str | None = "7 days ago") -> str:
         """What moved recently, phrased for speech."""
@@ -360,3 +370,94 @@ class MemoryTools:
         if extra > 0:
             spoken += f", and {_plural(extra, 'other change')}"
         return _sentence(spoken)
+
+    # -- déjà vu: have we been here before? ------------------------------
+
+    ASK_TAG = "asked"
+
+    def _topic_key(self, about: str) -> str:
+        return "topic:" + re.sub(r"[^a-z0-9]+", "-", about.strip().lower()).strip("-")[:40]
+
+    def _prior_asks(self, about: str) -> list[Memory]:
+        """Times this topic was asked about before, oldest first.
+
+        Questions are stored as EVENT memories in the same log as everything
+        else, so "when did I last ask about this" is answerable by the same
+        temporal machinery rather than a second bespoke store. Events are
+        excluded from the standing-facts view, so the log does not become noise.
+        """
+        key = self._topic_key(about)
+        asks = [
+            m
+            for m in self.store.all()
+            if m.kind is Kind.EVENT and self.ASK_TAG in m.tags and key in m.tags
+        ]
+        return sorted(asks, key=lambda m: m.asserted_at)
+
+    def _log_ask(self, about: str) -> None:
+        # Microsecond precision, deliberately finer than the second-resolution
+        # default used for facts. Memory ids are content-addressed over the
+        # assertion time, so two identical facts asserted in the same second
+        # collide — which is correct, that is deduplication. Two identical
+        # *questions* a moment apart are two events, and collapsing them would
+        # under-count exactly the recurrence this feature exists to notice.
+        stamp = _now().isoformat()
+        self.store.add(
+            Memory(
+                text=f"you asked about {about.strip()}",
+                kind=Kind.EVENT,
+                subject=self.subject,
+                source="alexa",
+                asserted_at=stamp,
+                valid_from=stamp,
+                tags=(self.ASK_TAG, self._topic_key(about)),
+            )
+        )
+
+    def _deja_vu(self, about: str, prior: list[Memory]) -> str:
+        """"You asked me this before, and the answer was different then."
+
+        Only says anything when the answer has actually moved. Announcing that
+        you asked the same question twice, with the same answer both times, is
+        an observation about you rather than a useful one about the memory.
+        """
+        if not prior:
+            return ""
+
+        first = prior[0]
+        then = [m.text for m in self.store.as_of(valid=parse_when(first.asserted_at))
+                if _matches(m, about) and m.kind is not Kind.EVENT]
+        now = [m.text for m in self.store.as_of() if _matches(m, about) and m.kind is not Kind.EVENT]
+
+        if not then or set(then) == set(now):
+            return ""
+        return (
+            f" You asked me this on {_fmt_date(parse_when(first.asserted_at))} too — "
+            f"back then, {_join(then[:1])}."
+        )
+
+    # -- what have I been wrong about? ------------------------------------
+
+    def wrong_about(self, limit: int = 2) -> str:
+        """Withdrawn beliefs, and how long each was carried.
+
+        Only possible because retraction keeps the record. A store that deletes
+        what it withdraws cannot answer this at all — it has destroyed the
+        evidence that it was ever wrong.
+        """
+        wrong = mistakes(self.store, subject=self.subject)
+        if not wrong:
+            return "You haven't withdrawn anything. Nothing I know has turned out to be false."
+
+        summary = churn(self.store, subject=self.subject)
+        lines = []
+        for m in wrong[:limit]:
+            days = m.held_days
+            duration = "less than a day" if days < 1 else _plural(days, "day")
+            lines.append(f"{m.memory.text} — you believed that for {duration}, until {m.reason}")
+
+        head = _plural(len(wrong), "thing")
+        tail = f", and {_plural(len(wrong) - len(lines), 'other')}" if len(wrong) > len(lines) else ""
+        return _sentence(
+            f"You've withdrawn {head}. The longest-standing: {_join(lines)}{tail}"
+        )

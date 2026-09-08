@@ -128,6 +128,15 @@ def build_server(store_path: Path | None = None) -> FastMCP:
     def what_changed(since: str = "7 days ago") -> str:
         return tools.what_changed(since)
 
+    @mcp.tool(
+        description=(
+            "What have I been wrong about? Lists beliefs that were withdrawn "
+            "as never true, and how long each one was carried before that."
+        )
+    )
+    def wrong_about() -> str:
+        return tools.wrong_about()
+
     # -- the simulated Alexa+ experience ---------------------------------
     #
     # Amazon permits a simulated experience in place of a certified add-on.
