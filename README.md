@@ -87,6 +87,38 @@ have been acting on something false) outranks an answer moving, which outranks a
 new fact. That only becomes visible when the list is tight — which is exactly
 when it matters.
 
+## On a screen, it draws the timeline
+
+Half the current Echo line-up has a display — Show 8 and Show 11 — and a belief
+history is a fundamentally visual thing: a sequence with a shape. Reading six
+dates aloud is a worse version of showing them.
+
+So `timeline` is an **MCP App** ([SEP-1865](https://github.com/modelcontextprotocol/ext-apps),
+spec `2026-01-26`, the first official MCP extension): a `ui://` resource whose
+HTML the host renders in a sandboxed iframe, linked from the tool through
+`_meta.ui.resourceUri`, communicating back over JSON-RPC on `postMessage`.
+
+```
+  the deploy root is the app folder        [replaced]   Feb 2026 → May 2026
+  the deploy root is the web folder        [replaced]   May 2026 → Aug 2026
+  the deploy root is the projects folder   [now]        Aug 2026 →
+```
+
+The same tool returns a spoken line, so one implementation serves a screen and
+a speaker. The view declares **no CSP domains at all** — a timeline of somebody's
+private memory has no business making network requests, and declaring nothing
+means the host blocks everything.
+
+## An Echo is a shared device
+
+It sits in a kitchen, not on one person's desk. Alexa+ knows who is speaking,
+so every tool takes `who`, and each person's memory is separate:
+
+```
+  hasif:  "What time is standup?"  →  My standup is at ten.
+  aisyah: "What time is standup?"  →  My standup is at eight.
+```
+
 ## Run it
 
 ```bash
@@ -100,7 +132,7 @@ that changed twice, a belief that was withdrawn, and a gap where nothing was
 known yet. Without a past there is nothing to demonstrate.
 
 ```bash
-python -m pytest -q          # 37 tests
+python -m pytest -q          # 42 tests
 ```
 
 ## The MCP server is real
@@ -120,8 +152,13 @@ def recall(about: str, when: str | None = None) -> str:
     return tools.recall(about, when)
 ```
 
-Seven tools are published: `catch_me_up`, `remember`, `recall`, `correct`,
-`forget`, `what_changed`, `wrong_about`.
+Eight tools are published: `catch_me_up`, `remember`, `recall`, `correct`,
+`forget`, `what_changed`, `wrong_about`, `timeline`.
+
+**Tool descriptions are the routing surface, not documentation.** Alexa+ picks
+which tool to invoke from these strings, so each one names the phrasings people
+actually use — "what was it back in June", "that's wrong, forget it" — rather
+than describing the function to a human reader.
 
 **Conformance is tested, not asserted** — see
 [`tests/test_transport.py`](tests/test_transport.py):
@@ -172,13 +209,30 @@ Amazon-Alexa-Memory/
 ├── server/tools.py   the six tools, and their spoken phrasing
 ├── server/demo.py    a seeded history worth asking questions about
 ├── web/index.html    the simulated experience — an MCP client in the browser
-└── tests/            37 tests: transport conformance and spoken behaviour
+├── web/timeline.html  the MCP App — a ui:// resource rendered on Echo Show
+└── tests/            42 tests: transport conformance and spoken behaviour
 ```
 
 The memory engine itself is a separate, reusable package:
 [**Memory-Substrate-Core**](../Memory-Substrate-Core) — bitemporal append-only
 store, tiered wake protocol, **zero third-party dependencies**, 94 tests, and a
 reproducible benchmark against load-everything and recency-only baselines.
+
+## Where this fits Amazon's platform
+
+Amazon's add-on examples are service integrations that complete a transaction —
+booking a table, buying tickets, calling a plumber. This is a different shape:
+not a service, but **infrastructure other add-ons could stand on**.
+
+Every add-on that stores anything about a customer faces the same problem this
+solves. A booking add-on that knows your usual table also needs to know when
+"usual" changed. A grocery add-on that learns you avoid shellfish needs to know
+whether that was a preference that shifted or a fact recorded wrongly. Today
+each of them would rebuild a private key-value store and get the temporal part
+wrong in the same way.
+
+Memory with a past tense is a horizontal capability, and it is the sort of thing
+that is better as one well-tested layer than as fifteen partial ones.
 
 ## Developer feedback
 

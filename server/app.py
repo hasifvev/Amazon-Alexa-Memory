@@ -33,7 +33,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from core.store import MemoryStore
-from server.tools import MemoryTools
+from server.tools import MemoryTools, Timeline
 
 # Where the memory lives. One file, on your machine, in a format you can read
 # with `cat`. That is the product position, not an implementation detail.
@@ -82,60 +82,155 @@ def build_server(store_path: Path | None = None) -> FastMCP:
         transport_security=_security_settings(),
     )
 
-    @mcp.tool(
-        description=(
-            "Catch up on what is new, what changed, and what is still open. "
-            "Optionally pretend it is a given hour of day, to hear how the "
-            "briefing reprioritises."
-        )
-    )
-    def catch_me_up(full: bool = False, hour: int | None = None) -> str:
-        return tools.catch_me_up(named=full, hour=hour)
-
-    @mcp.tool(description="Remember a new fact.")
-    def remember(fact: str, tags: list[str] | None = None) -> str:
-        return tools.remember(fact, tags=tags)
+    # Tool descriptions are the routing surface, not documentation. Alexa+
+    # chooses which tool to invoke from these strings, so each one names the
+    # phrasings a person actually uses. A description written for a human
+    # reader ("Recalls a stored fact") routes badly; one written for a router
+    # ("use when the customer asks what something is, or what it used to be")
+    # routes well. Every `who` parameter exists because an Echo is a shared
+    # household device.
 
     @mcp.tool(
         description=(
-            "Recall what is or was true about something. Give 'when' as a date "
-            "like 2026-03-01 or a phrase like 'three months ago' to ask about "
-            "the past."
+            "Use when the customer arrives, greets you, or asks to be caught "
+            "up: 'catch me up', 'what did I miss', 'good morning', 'anything "
+            "new'. Reports what changed since last time, what is still open, "
+            "and what was withdrawn. What it leads with depends on the time of "
+            "day. Set 'who' when the speaker is not the default person."
         )
     )
-    def recall(about: str, when: str | None = None) -> str:
-        return tools.recall(about, when)
+    def catch_me_up(
+        full: bool = False, hour: int | None = None, who: str | None = None
+    ) -> str:
+        return tools.for_subject(who).catch_me_up(named=full, hour=hour)
 
     @mcp.tool(
         description=(
-            "Record that an answer has changed. The previous value is kept, so "
-            "questions about the past still answer correctly."
+            "Use when the customer states a fact to keep: 'remember that…', "
+            "'note that…', 'don't let me forget…'. Pass the fact as a complete "
+            "sentence. Tag it 'open' if it is something still outstanding."
         )
     )
-    def correct(about: str, new_fact: str) -> str:
-        return tools.correct(about, new_fact)
+    def remember(
+        fact: str, tags: list[str] | None = None, who: str | None = None
+    ) -> str:
+        return tools.for_subject(who).remember(fact, tags=tags)
 
     @mcp.tool(
         description=(
-            "Withdraw something that was never true. It stops being said, but "
-            "the record that it was once believed is kept."
+            "Use when the customer asks what something is, or what it used to "
+            "be: 'what time is standup', 'when does the office close', 'what "
+            "was it back in June'. Set 'when' for questions about the past — "
+            "a date like 2026-03-01, or a phrase like 'three months ago'. "
+            "Answers about the past use what was true then, not what is true "
+            "now, and say so when nothing was known yet."
         )
     )
-    def forget(about: str, reason: str = "you told me it was wrong") -> str:
-        return tools.forget(about, reason)
-
-    @mcp.tool(description="What has changed recently.")
-    def what_changed(since: str = "7 days ago") -> str:
-        return tools.what_changed(since)
+    def recall(about: str, when: str | None = None, who: str | None = None) -> str:
+        return tools.for_subject(who).recall(about, when)
 
     @mcp.tool(
         description=(
-            "What have I been wrong about? Lists beliefs that were withdrawn "
-            "as never true, and how long each one was carried before that."
+            "Use when an answer has CHANGED and the old one was true at the "
+            "time: 'standup moved to ten', 'change my address to…', 'it's X "
+            "now'. The previous value is kept, so questions about earlier "
+            "dates still answer correctly. Do not use for something that was "
+            "never true — use forget for that."
         )
     )
-    def wrong_about() -> str:
-        return tools.wrong_about()
+    def correct(about: str, new_fact: str, who: str | None = None) -> str:
+        return tools.for_subject(who).correct(about, new_fact)
+
+    @mcp.tool(
+        description=(
+            "Use when something was NEVER true and should be withdrawn: "
+            "'that's wrong', 'forget that', 'I was mistaken about…'. Distinct "
+            "from correct: this says the fact never described reality, so it "
+            "will not answer questions about any date. The record that it was "
+            "once believed is kept."
+        )
+    )
+    def forget(
+        about: str, reason: str = "you told me it was wrong", who: str | None = None
+    ) -> str:
+        return tools.for_subject(who).forget(about, reason)
+
+    @mcp.tool(
+        description=(
+            "Use when the customer asks what has moved recently: 'what's "
+            "changed', 'what's new since last week', 'anything happen while I "
+            "was away'."
+        )
+    )
+    def what_changed(since: str = "7 days ago", who: str | None = None) -> str:
+        return tools.for_subject(who).what_changed(since)
+
+    @mcp.tool(
+        description=(
+            "Use when the customer asks about their own mistakes: 'what have I "
+            "been wrong about', 'what did I get wrong', 'have I made mistakes'. "
+            "Lists withdrawn beliefs and how long each was carried before being "
+            "withdrawn."
+        )
+    )
+    def wrong_about(who: str | None = None) -> str:
+        return tools.for_subject(who).wrong_about()
+
+    # -- MCP Apps: a visual timeline for devices with a screen -------------
+    #
+    # Half the current Echo line-up has a display, and a belief history is a
+    # fundamentally visual thing — a sequence with a shape. Reading six dates
+    # aloud is a worse version of showing them.
+    #
+    # This follows the MCP Apps extension (SEP-1865, spec 2026-01-26): a
+    # ui:// resource whose HTML the host renders in a sandboxed iframe, linked
+    # from a tool through _meta.ui.resourceUri. The tool still returns a spoken
+    # line, so one tool serves both a screen and a speaker.
+
+    @mcp.resource(
+        "ui://memory/timeline",
+        name="memory-timeline",
+        description="Visual history of what has been believed about a topic.",
+        mime_type="text/html;profile=mcp-app",
+        meta={
+            "ui": {
+                # No external anything. A timeline of somebody's private memory
+                # has no business making network requests, and declaring no
+                # domains means the host's CSP blocks them outright.
+                "csp": {
+                    "connectDomains": [],
+                    "resourceDomains": [],
+                    "frameDomains": [],
+                    "baseUriDomains": [],
+                },
+                "permissions": {},
+                "prefersBorder": False,
+            }
+        },
+    )
+    def timeline_view() -> str:
+        return (WEB_DIR / "timeline.html").read_text(encoding="utf-8")
+
+    @mcp.tool(
+        description=(
+            "Use when the customer wants the whole history of something rather "
+            "than just the current answer: 'show me the history of…', 'how has "
+            "this changed', 'what have I believed about…'. On a device with a "
+            "screen this renders a timeline; on a speaker it is spoken."
+        ),
+        meta={
+            "ui": {
+                "resourceUri": "ui://memory/timeline",
+                "visibility": ["model", "app"],
+            }
+        },
+        # Force structured output. A bare `-> dict` gives FastMCP no schema to
+        # derive, so it serialises to text only and the view receives nothing
+        # to render. The MCP Apps view reads structuredContent.
+        structured_output=True,
+    )
+    def timeline(about: str, who: str | None = None) -> Timeline:
+        return tools.for_subject(who).timeline(about)
 
     # -- the simulated Alexa+ experience ---------------------------------
     #

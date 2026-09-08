@@ -233,3 +233,44 @@ complaint:
 - **`mcp.custom_route`** made mounting the simulated experience on the same
   origin as the MCP endpoint a two-line job, which is what let the demo page be
   a real MCP client instead of a proxy.
+
+---
+
+## 10. MCP Apps works with the SDK, but you assemble it by hand
+
+**Severity: low — added after implementing the visual timeline.**
+
+The [MCP Apps extension](https://github.com/modelcontextprotocol/ext-apps)
+(SEP-1865) is production-ready and Alexa+ supports it, which makes it the right
+way to put a visual on an Echo Show. The Python SDK has no helper for it —
+there is no `@mcp.ui_resource` or equivalent — but it does not need one:
+`@mcp.resource(..., meta=...)` and `@mcp.tool(..., meta=...)` both take
+arbitrary metadata, so the whole extension is expressible today:
+
+```python
+@mcp.resource("ui://memory/timeline", mime_type="text/html;profile=mcp-app",
+              meta={"ui": {"csp": {...}, "permissions": {}}})
+def timeline_view() -> str: ...
+
+@mcp.tool(meta={"ui": {"resourceUri": "ui://memory/timeline",
+                       "visibility": ["model", "app"]}})
+def timeline(about: str) -> Timeline: ...
+```
+
+Two things cost time:
+
+**A bare `-> dict` cannot be structured output.** MCP Apps views read
+`structuredContent`, so the tool must return something with a schema. Returning
+`dict` raises `InvalidSignature: return type <class 'dict'> is not serializable
+for structured output` — a good error, once you know that structured output is
+what you needed. Nothing connects "my UI receives nothing" to "your return type
+has no schema". A Pydantic model fixes it.
+
+**Nothing in the Alexa+ docs shows an MCP App end to end.** The quickstart says
+"for visuals, follow the MCP Apps standard", which is correct and is the whole
+of it. Given that half the current Echo line-up has a display, a worked example
+— server side and view side — would likely change what people build.
+
+**Suggestion:** an MCP Apps example in the Alexa+ docs, and a note in the SDK's
+structured-output error pointing at the extension, since that is the most
+likely reason someone hits it.

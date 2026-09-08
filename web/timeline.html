@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Memory timeline</title>
+<style>
+  /* Everything is inline. MCP Apps hosts apply a restrictive default CSP —
+     default-src 'none'; script-src 'self' 'unsafe-inline' — so any external
+     font, image or stylesheet would simply not load. */
+  :root {
+    --bg: #0b0f14; --card: #141b24; --line: #222d3a;
+    --ink: #e8eef7; --dim: #93a3b8; --faint: #61748a;
+    --now: #00caff; --past: #6b7f96; --gone: #ff7b7b; --open: #ffc061;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+  .wrap { padding: 14px 16px 18px; }
+
+  h1 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase;
+       color: var(--faint); margin: 0 0 3px; font-weight: 600; }
+  .subject { font-size: 19px; font-weight: 650; margin: 0 0 14px; letter-spacing: -.01em; }
+
+  ol { list-style: none; margin: 0; padding: 0 0 0 22px; position: relative; }
+  ol::before {
+    content: ""; position: absolute; left: 5px; top: 6px; bottom: 10px;
+    width: 2px; background: linear-gradient(var(--line), transparent);
+  }
+  li { position: relative; padding: 0 0 16px; }
+  li::before {
+    content: ""; position: absolute; left: -21px; top: 5px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--past); box-shadow: 0 0 0 3px var(--bg);
+  }
+  li.now::before   { background: var(--now); box-shadow: 0 0 0 3px var(--bg), 0 0 12px rgba(0,202,255,.7); }
+  li.gone::before  { background: var(--gone); }
+
+  .what { font-size: 15.5px; }
+  li.gone .what { text-decoration: line-through; text-decoration-color: rgba(255,123,123,.6); color: var(--dim); }
+  .when { font-size: 12.5px; color: var(--faint); margin-top: 3px; }
+  .tag {
+    display: inline-block; font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+    padding: 2px 7px; border-radius: 999px; margin-left: 7px; vertical-align: 1px;
+    border: 1px solid var(--line); color: var(--dim);
+  }
+  .tag.now  { color: #06202b; background: var(--now); border-color: var(--now); font-weight: 700; }
+  .tag.gone { color: var(--gone); border-color: rgba(255,123,123,.4); }
+  .held { color: var(--open); }
+
+  .empty { color: var(--dim); padding: 8px 0 4px; }
+  .foot { margin-top: 6px; padding-top: 11px; border-top: 1px solid var(--line);
+          font-size: 12px; color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="heading">Timeline</h1>
+  <div class="subject" id="subject">—</div>
+  <ol id="entries"></ol>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+/* MCP Apps view.
+   Communicates with the host over JSON-RPC 2.0 on postMessage, per the
+   ext-apps specification. The host sends the tool result; we render it.
+   No network access of any kind — the CSP would block it, and a timeline of
+   somebody's private memory has no business making requests. */
+
+let nextId = 0;
+const pending = new Map();
+
+function send(method, params, {notify = false} = {}) {
+  const msg = notify
+    ? {jsonrpc: "2.0", method, params}
+    : {jsonrpc: "2.0", id: ++nextId, method, params};
+  window.parent.postMessage(msg, "*");
+  return msg.id;
+}
+
+function reportSize() {
+  send("ui/notifications/size-changed",
+       {height: document.documentElement.scrollHeight}, {notify: true});
+}
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c =>
+  ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+function plural(n, word) { return `${n} ${word}${n === 1 ? "" : "s"}`; }
+
+function render(data) {
+  if (!data || !Array.isArray(data.entries)) return;
+
+  document.getElementById("subject").textContent = data.about || "this";
+  document.getElementById("heading").textContent =
+    data.entries.length > 1 ? "What you have believed" : "What you believe";
+
+  const list = document.getElementById("entries");
+  list.innerHTML = "";
+
+  if (!data.entries.length) {
+    list.innerHTML = `<div class="empty">Nothing recorded about this.</div>`;
+  }
+
+  for (const e of data.entries) {
+    const li = document.createElement("li");
+    li.className = e.status === "current" ? "now" : e.status === "withdrawn" ? "gone" : "";
+
+    const tag = e.status === "current"
+      ? `<span class="tag now">now</span>`
+      : e.status === "withdrawn"
+        ? `<span class="tag gone">withdrawn</span>`
+        : `<span class="tag">replaced</span>`;
+
+    let when = e.starts ? `from ${esc(e.starts)}` : "";
+    if (e.ends) when += ` until ${esc(e.ends)}`;
+    if (e.status === "withdrawn" && e.held_days != null) {
+      when += ` · <span class="held">believed for ${plural(e.held_days, "day")}</span>`;
+    }
+    if (e.reason) when += ` · ${esc(e.reason)}`;
+
+    li.innerHTML = `<div class="what">${esc(e.text)}${tag}</div>`
+                 + (when ? `<div class="when">${when}</div>` : "");
+    list.appendChild(li);
+  }
+
+  document.getElementById("foot").textContent = data.footnote || "";
+  reportSize();
+}
+
+window.addEventListener("message", (event) => {
+  const msg = event.data;
+  if (!msg || msg.jsonrpc !== "2.0") return;
+
+  // Response to our ui/initialize
+  if (msg.id !== undefined && msg.result && pending.has(msg.id)) {
+    pending.delete(msg.id);
+    return;
+  }
+
+  if (msg.method === "ui/notifications/tool-result") {
+    const r = msg.params?.result ?? msg.params;
+    render(r?.structuredContent ?? r);
+  }
+});
+
+/* Handshake. Declare no capabilities: this view only displays. */
+const initId = send("ui/initialize", {
+  appCapabilities: {},
+  protocolVersion: "2026-01-26",
+});
+pending.set(initId, true);
+reportSize();
+</script>
+</body>
+</html>

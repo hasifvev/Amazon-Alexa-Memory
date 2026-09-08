@@ -22,12 +22,38 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 
+from pydantic import BaseModel, Field
+
 from core.insight import churn, mistakes
 from core.store import Kind, Memory, MemoryStore
 from core.tiers import Trigger
 from core.wake import wake
 
 MAX_SPOKEN_ITEMS = 3
+
+
+class TimelineEntry(BaseModel):
+    """One step in a belief's history, shaped for rendering.
+
+    Field names avoid `from`, which is a Python keyword and cannot be a model
+    field without aliasing gymnastics that would leak into the view.
+    """
+
+    text: str
+    status: str = Field(description="current, replaced, or withdrawn")
+    starts: str | None = None
+    ends: str | None = None
+    held_days: int | None = Field(default=None, description="days believed before withdrawal")
+    reason: str | None = None
+
+
+class Timeline(BaseModel):
+    """A topic's full history. Rendered on a screen, spoken on a speaker."""
+
+    about: str
+    entries: list[TimelineEntry]
+    footnote: str
+    spoken: str
 
 
 def _now() -> datetime:
@@ -280,12 +306,16 @@ class MemoryTools:
 
         found = [
             m
-            for m in self.store.as_of(valid=moment)
+            for m in self.store.as_of(valid=moment, subject=self.subject)
             if _matches(m, about) and m.kind is not Kind.EVENT
         ]
 
         if not found:
-            ever = [m for m in self.store.all() if _matches(m, about)]
+            ever = [
+                m
+                for m in self.store.all()
+                if _matches(m, about) and m.subject == self.subject
+            ]
             if not ever:
                 return f"I don't know anything about {about}."
             if asking_about_past:
@@ -390,7 +420,10 @@ class MemoryTools:
         asks = [
             m
             for m in self.store.all()
-            if m.kind is Kind.EVENT and self.ASK_TAG in m.tags and key in m.tags
+            if m.kind is Kind.EVENT
+            and m.subject == self.subject
+            and self.ASK_TAG in m.tags
+            and key in m.tags
         ]
         return sorted(asks, key=lambda m: m.asserted_at)
 
@@ -425,9 +458,18 @@ class MemoryTools:
             return ""
 
         first = prior[0]
-        then = [m.text for m in self.store.as_of(valid=parse_when(first.asserted_at))
-                if _matches(m, about) and m.kind is not Kind.EVENT]
-        now = [m.text for m in self.store.as_of() if _matches(m, about) and m.kind is not Kind.EVENT]
+        then = [
+            m.text
+            for m in self.store.as_of(
+                valid=parse_when(first.asserted_at), subject=self.subject
+            )
+            if _matches(m, about) and m.kind is not Kind.EVENT
+        ]
+        now = [
+            m.text
+            for m in self.store.as_of(subject=self.subject)
+            if _matches(m, about) and m.kind is not Kind.EVENT
+        ]
 
         if not then or set(then) == set(now):
             return ""
@@ -460,4 +502,101 @@ class MemoryTools:
         tail = f", and {_plural(len(wrong) - len(lines), 'other')}" if len(wrong) > len(lines) else ""
         return _sentence(
             f"You've withdrawn {head}. The longest-standing: {_join(lines)}{tail}"
+        )
+
+    # -- multi-person: an Echo is a shared device -------------------------
+
+    def for_subject(self, who: str | None) -> "MemoryTools":
+        """A view of the same store scoped to a different person.
+
+        An Echo sits in a kitchen, not on one person's desk. Alexa+ knows who is
+        speaking, so "my standup" and "her standup" must be different facts
+        rather than one contested one. The store has always scoped by subject;
+        this is the seam that uses it.
+        """
+        if not who or who.strip().lower() == self.subject:
+            return self
+        return MemoryTools(
+            self.store,
+            subject=who.strip().lower(),
+            utc_offset_hours=self.utc_offset_hours,
+        )
+
+    # -- the visual: a timeline for Echo Show ------------------------------
+
+    def timeline(self, about: str) -> Timeline:
+        """Structured history of a topic, for rendering rather than speaking.
+
+        Half the current Echo line-up has a screen, and a belief history is a
+        fundamentally visual thing: a sequence with a shape. Reading six dates
+        aloud is a worse version of showing them.
+
+        Returns data, not prose. The spoken line comes along for hosts with no
+        display, so a single tool serves both.
+        """
+        matches = [
+            m
+            for m in self.store.all()
+            if _matches(m, about) and m.kind is not Kind.EVENT and m.subject == self.subject
+        ]
+        if not matches:
+            return Timeline(
+                about=about,
+                entries=[],
+                footnote="",
+                spoken=f"I don't know anything about {about}.",
+            )
+
+        # Walk the whole chain from any link, so a topic that changed three
+        # times shows three steps rather than only the newest.
+        seen: set[str] = set()
+        ordered: list[Memory] = []
+        for m in matches:
+            for link in self.store.history(m.id) or [m]:
+                if link.id not in seen:
+                    seen.add(link.id)
+                    ordered.append(link)
+        ordered.sort(key=lambda m: m.asserted_at)
+
+        entries = []
+        for m in ordered:
+            retraction = self.store.retraction(m.id)
+            replaced_by = self.store.superseded_by(m.id)
+            start, end = self.store.valid_window(m)
+
+            if retraction:
+                status = "withdrawn"
+                held = (parse_when(retraction.at) - parse_when(m.asserted_at)).days
+            elif replaced_by:
+                status = "replaced"
+                held = None
+            else:
+                status = "current"
+                held = None
+
+            entries.append(
+                TimelineEntry(
+                    text=m.text,
+                    status=status,
+                    starts=_fmt_date(parse_when(start)) if start else None,
+                    ends=_fmt_date(parse_when(end)) if end else None,
+                    held_days=held,
+                    reason=retraction.reason if retraction else None,
+                )
+            )
+
+        changes = sum(1 for e in entries if e.status == "replaced")
+        withdrawn = sum(1 for e in entries if e.status == "withdrawn")
+        bits = []
+        if changes:
+            bits.append(f"changed {_plural(changes, 'time')}")
+        if withdrawn:
+            bits.append(f"{_plural(withdrawn, 'belief')} withdrawn")
+        footnote = ("This " + _join(bits) + ".") if bits else "Unchanged since you told me."
+
+        return Timeline(
+            about=about,
+            entries=entries,
+            footnote=footnote,
+            spoken=self.recall(about),
         )

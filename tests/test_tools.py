@@ -278,3 +278,55 @@ def test_a_superseded_fact_is_not_a_mistake(tools):
     tools.remember("the standup is at nine")
     tools.correct("standup", "the standup is at ten")
     assert "haven't withdrawn anything" in tools.wrong_about()
+
+
+# -- multi-person: an Echo is a shared device ------------------------------
+
+
+def test_one_persons_memory_does_not_leak_to_another(tools):
+    """Regression, and a privacy bug rather than a cosmetic one.
+
+    recall() queried the store without passing subject, so on a shared kitchen
+    device every person heard everybody else's facts. Every other method
+    filtered correctly, which is exactly why it went unnoticed.
+    """
+    hasif = tools.for_subject("hasif")
+    aisyah = tools.for_subject("aisyah")
+
+    hasif.remember("my standup is at ten")
+    aisyah.remember("my standup is at eight")
+
+    assert "ten" in hasif.recall("standup")
+    assert "eight" not in hasif.recall("standup"), "heard someone else's memory"
+
+    assert "eight" in aisyah.recall("standup")
+    assert "ten" not in aisyah.recall("standup"), "heard someone else's memory"
+
+
+def test_an_unknown_topic_stays_unknown_per_person(tools):
+    tools.for_subject("hasif").remember("my locker code is 4417")
+    assert "don't know" in tools.for_subject("aisyah").recall("locker code")
+
+
+def test_for_subject_returns_self_when_unscoped(tools):
+    assert tools.for_subject(None) is tools
+    assert tools.for_subject("default") is tools
+
+
+def test_questions_are_scoped_per_person(tools):
+    hasif = tools.for_subject("hasif")
+    hasif.remember("my standup is at ten")
+    hasif.recall("standup")
+    assert len(hasif._prior_asks("standup")) == 1
+    assert tools.for_subject("aisyah")._prior_asks("standup") == []
+
+
+def test_a_timeline_shows_only_that_persons_history(tools):
+    hasif = tools.for_subject("hasif")
+    aisyah = tools.for_subject("aisyah")
+    hasif.remember("my standup is at ten")
+    aisyah.remember("my standup is at eight")
+
+    texts = [e.text for e in hasif.timeline("standup").entries]
+    assert any("ten" in t for t in texts)
+    assert not any("eight" in t for t in texts)
