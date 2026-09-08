@@ -1,0 +1,4 @@
+mcp>=1.29
+uvicorn>=0.34
+starlette>=0.47
+memory-substrate-core @ file:///c:/Users/hasif/OneDrive/ドキュメント/Projects/Memory-Substrate-Core

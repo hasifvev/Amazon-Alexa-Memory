@@ -1,0 +1,7 @@
+# One line ending everywhere. Tooling matches on 
+; a CRLF checkout
+# silently breaks multi-line anchors and text parsing.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.mp4 binary

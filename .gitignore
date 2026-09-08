@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.env
+.env.*
+!.env.example
+*.jsonl.local
+dist/
+build/
+*.egg-info/
+.DS_Store
+node_modules/
+data/
+*.jsonl
