@@ -164,3 +164,32 @@ def test_the_server_declares_the_expected_protocol_version():
         return await client.post("/mcp", json=INITIALIZE, headers=headers())
 
     assert "2025-11-25" in call(go).text
+
+
+def test_our_allowlists_are_never_empty():
+    """Guards the SDK footgun documented in FRICTION.md #1.
+
+    TransportSecuritySettings() with its own defaults has protection enabled
+    and both allowlists empty, which rejects every request with 421 — including
+    valid ones, and blaming the Host header while you are configuring Origin.
+    If a future change ever empties these lists, the server stops answering
+    entirely and the error points somewhere else.
+    """
+    from server.app import _security_settings
+
+    settings = _security_settings()
+    assert settings.allowed_origins, "empty origin allowlist rejects everything with 421"
+    assert settings.allowed_hosts, "empty host allowlist rejects everything with 421"
+
+
+def test_a_valid_origin_is_not_rejected_by_the_host_check():
+    """The 421 failure mode is invisible if you only ever test bad origins."""
+
+    async def go(client):
+        return await client.post("/mcp", json=INITIALIZE, headers=headers())
+
+    response = call(go)
+    assert response.status_code != 421, (
+        "Host allowlist is rejecting a valid request — see FRICTION.md #1"
+    )
+    assert response.status_code == 200

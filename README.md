@@ -164,6 +164,18 @@ The memory engine itself is a separate, reusable package:
 store, tiered wake protocol, **zero third-party dependencies**, 94 tests, and a
 reproducible benchmark against load-everything and recency-only baselines.
 
+## Developer feedback
+
+[FRICTION.md](FRICTION.md) is the friction log kept while building this: nine
+issues hit against the MCP SDK, the Alexa+ documentation and the hackathon
+rules, each with what it cost and a concrete suggestion — plus what worked well,
+since a friction log with no positives is a complaint rather than a report.
+
+The first entry is a reproducible SDK footgun: constructing
+`TransportSecuritySettings()` with its own defaults makes the server answer
+**421 to every request**, while omitting the parameter entirely behaves
+correctly. There is a regression test guarding against it here.
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE).
