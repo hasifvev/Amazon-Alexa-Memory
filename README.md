@@ -26,7 +26,23 @@ This add-on supplies that. It is memory with a history.
   "What about the spare key, back in March?"
       I didn't know anything about the spare key on 1 March 2026. I only learned
       about it later.
+
+  "What have I been wrong about?"
+      You've withdrawn one thing. The longest-standing: the office closes at six —
+      you believed that for 145 days, until you told me it is actually seven.
 ```
+
+And when you ask something you asked before, whose answer has moved since:
+
+```
+  "What time is standup?"
+      Standup is at ten thirty. That changed on 8 July — before, standup was at
+      nine. You asked me this on 11 April too — back then, standup was at nine.
+```
+
+That 145-day figure is unavailable to any memory system that deletes what it
+retracts: the evidence of having been wrong is the first thing such a system
+destroys. Keeping withdrawn beliefs makes the duration simple arithmetic.
 
 That last answer is the one worth pausing on. Admitting a gap is the behaviour
 that separates this from an assistant which would confidently answer a March
@@ -84,7 +100,7 @@ that changed twice, a belief that was withdrawn, and a gap where nothing was
 known yet. Without a past there is nothing to demonstrate.
 
 ```bash
-python -m pytest -q          # 27 tests
+python -m pytest -q          # 37 tests
 ```
 
 ## The MCP server is real
@@ -104,8 +120,8 @@ def recall(about: str, when: str | None = None) -> str:
     return tools.recall(about, when)
 ```
 
-Six tools are published: `catch_me_up`, `remember`, `recall`, `correct`,
-`forget`, `what_changed`.
+Seven tools are published: `catch_me_up`, `remember`, `recall`, `correct`,
+`forget`, `what_changed`, `wrong_about`.
 
 **Conformance is tested, not asserted** — see
 [`tests/test_transport.py`](tests/test_transport.py):
@@ -156,7 +172,7 @@ Amazon-Alexa-Memory/
 ├── server/tools.py   the six tools, and their spoken phrasing
 ├── server/demo.py    a seeded history worth asking questions about
 ├── web/index.html    the simulated experience — an MCP client in the browser
-└── tests/            27 tests: transport conformance and spoken behaviour
+└── tests/            37 tests: transport conformance and spoken behaviour
 ```
 
 The memory engine itself is a separate, reusable package:
