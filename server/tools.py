@@ -214,8 +214,58 @@ def _matches(memory: Memory, subject: str) -> bool:
     return needle in memory.text.lower() or any(needle in t.lower() for t in memory.tags)
 
 
+# ---------------------------------------------------------------------------
+# Personality helpers — voice, tone, and time
+# ---------------------------------------------------------------------------
+
+def _display_name(store: MemoryStore, subject: str) -> str:
+    """Return the user's preferred name if stored, else 'there'."""
+    for m in store.as_of(subject=subject):
+        if any(t == "profile:name" for t in m.tags):
+            lower = m.text.lower()
+            for prefix in ("my name is ", "i am ", "call me "):
+                if prefix in lower:
+                    rest = m.text[lower.index(prefix) + len(prefix):].strip()
+                    name = rest.split()[0].rstrip(".,!") if rest else ""
+                    if name:
+                        return name.title()
+    return "there"
+
+
+def _relationship_stage(store: MemoryStore, subject: str) -> int:
+    """0=stranger 1=acquaintance 2=regular 3=familiar — based on memory count."""
+    count = len(store.as_of(subject=subject))
+    if count <= 5:
+        return 0
+    if count <= 20:
+        return 1
+    if count <= 50:
+        return 2
+    return 3
+
+
+def _time_greeting(hour: int) -> str:
+    if 6 <= hour < 12:
+        return "Good morning"
+    if 12 <= hour < 17:
+        return "Good afternoon"
+    if 17 <= hour < 21:
+        return "Good evening"
+    return "Hey"
+
+
+def _clock(moment: datetime) -> str:
+    """12-hour clock string without leading zero, cross-platform."""
+    h = moment.hour % 12 or 12
+    return f"{h}:{moment.strftime('%M')} {'AM' if moment.hour < 12 else 'PM'}"
+
+
 class MemoryTools:
     """Everything Alexa+ can do with the memory, as spoken answers."""
+
+    LIST_TAG_PREFIX = "list:"
+    PROJECT_TAG_PREFIX = "project:"
+    PROFILE_TAG_PREFIX = "profile:"
 
     def __init__(
         self,
@@ -230,6 +280,29 @@ class MemoryTools:
         # somebody in another timezone must use their hour.
         self.utc_offset_hours = utc_offset_hours
 
+    def _get_tz_offset(self) -> float:
+        """Read UTC offset from profile memory, or fall back to instance default."""
+        for m in self.store.as_of(subject=self.subject):
+            if any(t == "profile:timezone" for t in m.tags):
+                match = re.search(r"([+-]?\d+(?:\.\d+)?)", m.text)
+                if match:
+                    try:
+                        return float(match.group(1))
+                    except ValueError:
+                        pass
+        return self.utc_offset_hours
+
+    def _get_city(self) -> str:
+        """Read city from profile memory."""
+        for m in self.store.as_of(subject=self.subject):
+            if any(t in ("profile:location", "profile:city") for t in m.tags):
+                lower = m.text.lower()
+                for prefix in ("i live in ", "i'm in ", "i am in ", "based in ", "location is ", "i am based in "):
+                    if prefix in lower:
+                        rest = m.text[lower.index(prefix) + len(prefix):].strip()
+                        return rest.split(",")[0].strip()
+        return ""
+
     # -- the headline ---------------------------------------------------
 
     def catch_me_up(self, *, named: bool = False, hour: int | None = None) -> str:
@@ -240,16 +313,18 @@ class MemoryTools:
         It shifts the clock only; nothing about the memory changes.
         """
         moment = _now()
+        tz_offset = self._get_tz_offset()
+        local = moment.astimezone(timezone(timedelta(hours=tz_offset)))
         if hour is not None:
-            local = moment.astimezone(timezone(timedelta(hours=self.utc_offset_hours)))
-            moment = local.replace(hour=hour % 24, minute=0, second=0, microsecond=0)
+            local = local.replace(hour=hour % 24, minute=0, second=0, microsecond=0)
+            moment = local
 
         briefing = wake(
             self.store,
             trigger=Trigger.NAMED if named else Trigger.SESSION,
             subject=self.subject,
             now=moment,
-            utc_offset_hours=self.utc_offset_hours,
+            utc_offset_hours=tz_offset,
         )
         # The wake ends a truncated list with "...and N more", which is right in
         # writing and nonsense read aloud. Strip it and fold the count into the
@@ -266,7 +341,41 @@ class MemoryTools:
 
         changes, changes_hidden = _real(briefing.items.get("changed", []))
         open_items, open_hidden = _real(briefing.items.get("open", []))
-        parts: list[str] = []
+
+        # --- Personality layer -------------------------------------------
+        name = _display_name(self.store, self.subject)
+        stage = _relationship_stage(self.store, self.subject)
+        greeting = _time_greeting(local.hour)
+        city = self._get_city()
+        location_part = f" in {city}" if city else ""
+        time_line = f"It's {local.strftime('%A')}, {_fmt_date(local)}, {_clock(local)}{location_part}."
+
+        if stage == 0:
+            opener = f"{greeting}! I'm still getting to know you. {time_line}"
+        elif stage == 1:
+            n = f", {name}" if name != "there" else ""
+            opener = f"{greeting}{n}! Good to have you back. {time_line}"
+        elif stage == 2:
+            n = f", {name}" if name != "there" else ""
+            opener = f"{greeting}{n}! Picking up where we left off. {time_line}"
+        else:
+            n = name if name != "there" else "Hey"
+            opener = f"{n}. {greeting.lower()}. {time_line}"
+
+        # Proactive nudges: memories expiring within 3 days
+        nudges = []
+        now_ts = _now()
+        for m in self.store.as_of(subject=self.subject):
+            if m.valid_until and not any(t.startswith(self.LIST_TAG_PREFIX) for t in m.tags):
+                try:
+                    exp = parse_when(m.valid_until)
+                    delta = (exp - now_ts).days
+                    if 0 <= delta <= 3:
+                        nudges.append((delta, m.text))
+                except ValueError:
+                    pass
+
+        parts: list[str] = [opener]
 
         if changes:
             spoken = [_speak_change(c) for c in changes[:MAX_SPOKEN_ITEMS]]
@@ -280,20 +389,44 @@ class MemoryTools:
             tail = f", plus {_plural(extra, 'other')}" if extra > 0 else ""
             parts.append(f"Still open: {_join(spoken)}{tail}.")
 
-        if parts:
+        if nudges:
+            nudge_texts = []
+            for delta, text in nudges[:2]:
+                if delta == 0:
+                    nudge_texts.append(f"'{text}' expires today")
+                elif delta == 1:
+                    nudge_texts.append(f"'{text}' expires tomorrow")
+                else:
+                    nudge_texts.append(f"'{text}' expires in {delta} days")
+            parts.append(f"Heads up: {_join(nudge_texts)}.")
+
+        if len(parts) > 1:
             return " ".join(_sentence(p) for p in parts)
 
         known = self.store.as_of(subject=self.subject)
         if not known:
-            return "I don't have anything for you yet. Tell me something to remember."
-        return f"Nothing has changed. I still know {_plural(len(known), 'thing')}."
+            return f"{opener} Tell me something to remember and I'll keep it for you."
+        return f"{opener} Nothing new — I still know {_plural(len(known), 'thing')} about you."
 
     # -- writing ---------------------------------------------------------
 
     def remember(self, fact: str, *, tags: list[str] | None = None) -> str:
-        """Store something new."""
+        """Store something new, with a clever callback if something similar exists."""
         if not fact.strip():
             return "I need something to remember."
+
+        name = _display_name(self.store, self.subject)
+        name_part = f", {name}" if name != "there" else ""
+
+        # Check for overlap with existing facts (clever callback)
+        words = [w for w in fact.strip().lower().split() if len(w) > 3]
+        overlap = [
+            m for m in self.store.as_of(subject=self.subject)
+            if any(w in m.text.lower() for w in words[:3])
+            and not any(t.startswith(self.LIST_TAG_PREFIX) for t in m.tags)
+            and not any(t.startswith(self.PROFILE_TAG_PREFIX) for t in m.tags)
+        ]
+
         memory = Memory(
             text=fact.strip(),
             subject=self.subject,
@@ -302,7 +435,12 @@ class MemoryTools:
             tags=tuple(tags or ()),
         )
         self.store.add(memory)
-        return f"Got it. I'll remember that {fact.strip()}."
+
+        if overlap:
+            old = overlap[0].text
+            if old != fact.strip():
+                return f"Got it{name_part}. Updated — it was '{old}' before."
+        return f"Got it{name_part}. I'll remember that {fact.strip()}."
 
     def remember_for(self, fact: str, until: str, *, tags: list[str] | None = None) -> str:
         """Store something that expires automatically.
@@ -364,10 +502,13 @@ class MemoryTools:
             options = "; ".join(m.text for m in matches[:MAX_SPOKEN_ITEMS])
             return f"I know a few things about {about}: {options}. Which one?"
 
-        self.store.retract(matches[0].id, reason)
+        m = matches[0]
+        held = (_now() - parse_when(m.asserted_at)).days
+        duration = "less than a day" if held < 1 else _plural(held, "day")
+        self.store.retract(m.id, reason)
         return (
-            f"I've withdrawn that. I won't say it again, "
-            f"though I'll still know I used to think it."
+            f"Done — I've withdrawn that. You held that belief for {duration}. "
+            f"I'll still know I used to think it."
         )
 
     # -- reading ----------------------------------------------------------
@@ -603,6 +744,7 @@ class MemoryTools:
             utc_offset_hours=self.utc_offset_hours,
         )
 
+
     SHARED_TAG_PREFIX = "shared-by:"
 
     def share(self, fact: str, with_who: str) -> str:
@@ -682,6 +824,158 @@ class MemoryTools:
         head = _plural(len(moved), "fact")
         tail = f", and {_plural(len(moved) - len(lines), 'other')}" if len(moved) > len(lines) else ""
         return _sentence(f"{head} changed. The longest-standing: {_join(lines)}{tail}")
+
+    # -- personality: current time and date ---------------------------------
+
+    def what_time_is_it(self) -> str:
+        """Current local date, day, and time — in the user's stored timezone."""
+        tz_offset = self._get_tz_offset()
+        local = _now().astimezone(timezone(timedelta(hours=tz_offset)))
+        city = self._get_city()
+        name = _display_name(self.store, self.subject)
+        location_part = f" in {city}" if city else ""
+        name_part = f", {name}" if name != "there" else ""
+        return (
+            f"It's {local.strftime('%A')}, {_fmt_date(local)}, "
+            f"{_clock(local)}{location_part}{name_part}."
+        )
+
+    # -- lists: shopping, packing, errands -----------------------------------
+
+    def add_to_list(self, item: str, list_name: str = "shopping") -> str:
+        """Add an item to a named list. Returns updated count."""
+        if not item.strip():
+            return "I need an item to add."
+        tag = f"{self.LIST_TAG_PREFIX}{list_name.strip().lower()}"
+        # Idempotency: don't double-add
+        existing = [
+            m for m in self.store.as_of(subject=self.subject)
+            if tag in m.tags and item.strip().lower() in m.text.lower()
+        ]
+        if existing:
+            return f"{item.strip().title()} is already on your {list_name} list."
+        # History callback: has this been bought before?
+        prev = [
+            m for m in self.store.all()
+            if m.subject == self.subject and tag in m.tags
+            and item.strip().lower() in m.text.lower()
+        ]
+        self.store.add(Memory(
+            text=item.strip(),
+            subject=self.subject,
+            source="alexa",
+            valid_from=_now().isoformat(timespec="seconds"),
+            tags=(tag,),
+        ))
+        total = len([m for m in self.store.as_of(subject=self.subject) if tag in m.tags])
+        if prev:
+            return f"{item.strip().title()} again — added to your {list_name} list. {_plural(total, 'item')} now."
+        return f"{item.strip().title()} added to your {list_name} list. {_plural(total, 'item')} now."
+
+    def get_list(self, list_name: str = "shopping") -> str:
+        """Return the current contents of a named list, spoken aloud."""
+        tag = f"{self.LIST_TAG_PREFIX}{list_name.strip().lower()}"
+        items = [m for m in self.store.as_of(subject=self.subject) if tag in m.tags]
+        if not items:
+            return f"Your {list_name} list is empty."
+        texts = [m.text for m in items]
+        spoken = _join(texts[:MAX_SPOKEN_ITEMS])
+        extra = len(texts) - MAX_SPOKEN_ITEMS
+        tail = f", and {_plural(extra, 'more item')}" if extra > 0 else ""
+        return f"Your {list_name} list: {spoken}{tail}."
+
+    def remove_from_list(self, item: str, list_name: str = "shopping") -> str:
+        """Check off or remove an item from a named list."""
+        tag = f"{self.LIST_TAG_PREFIX}{list_name.strip().lower()}"
+        matches = [
+            m for m in self.store.as_of(subject=self.subject)
+            if tag in m.tags and item.strip().lower() in m.text.lower()
+        ]
+        if not matches:
+            return f"I don't see {item.strip()} on your {list_name} list."
+        self.store.retract(matches[0].id, "checked off")
+        remaining = len([m for m in self.store.as_of(subject=self.subject) if tag in m.tags])
+        if remaining == 0:
+            return f"Done — {item.strip()} removed. Your {list_name} list is clear!"
+        return f"Done — {item.strip()} off the list. {_plural(remaining, 'item')} left."
+
+    # -- projects: track goals and milestones --------------------------------
+
+    def track(self, project: str, status: str, note: str = "") -> str:
+        """Log or update a project milestone. Returns the change with history."""
+        if not project.strip() or not status.strip():
+            return "I need a project name and a status."
+        slug = re.sub(r"[^a-z0-9]+", "-", project.strip().lower()).strip("-")
+        tag = f"{self.PROJECT_TAG_PREFIX}{slug}"
+        existing = [m for m in self.store.as_of(subject=self.subject) if tag in m.tags]
+        text = f"{project.strip()}: {status.strip()}"
+        if note.strip():
+            text += f" — {note.strip()}"
+        if existing:
+            old_text = existing[0].text
+            old_status = old_text.split(":", 1)[1].strip().split(" —")[0].strip() if ":" in old_text else old_text
+            self.store.supersede(existing[0].id, Memory(
+                text=text,
+                subject=self.subject,
+                source="alexa",
+                valid_from=_now().isoformat(timespec="seconds"),
+                tags=(tag,),
+            ))
+            return f"Updated — {project.strip()} is now '{status.strip()}'. Was '{old_status}' before."
+        self.store.add(Memory(
+            text=text,
+            subject=self.subject,
+            source="alexa",
+            valid_from=_now().isoformat(timespec="seconds"),
+            tags=(tag,),
+        ))
+        return f"Tracking {project.strip()} as '{status.strip()}'."
+
+    def my_projects(self) -> str:
+        """List all tracked projects and their current status."""
+        projects = [
+            m for m in self.store.as_of(subject=self.subject)
+            if any(t.startswith(self.PROJECT_TAG_PREFIX) for t in m.tags)
+        ]
+        if not projects:
+            return "You're not tracking any projects yet. Tell me one to start."
+        lines = [m.text for m in projects[:MAX_SPOKEN_ITEMS]]
+        extra = len(projects) - len(lines)
+        tail = f", and {_plural(extra, 'other')}" if extra > 0 else ""
+        return _sentence(f"You're tracking: {_join(lines)}{tail}")
+
+    # -- profile: name, location, timezone -----------------------------------
+
+    def set_profile(self, key: str, value: str) -> str:
+        """Store a profile fact (name, location, timezone) used by personality layer."""
+        if not key.strip() or not value.strip():
+            return "I need both a key and a value."
+        tag = f"{self.PROFILE_TAG_PREFIX}{key.strip().lower()}"
+        templates = {
+            "name": f"my name is {value.strip()}",
+            "location": f"I live in {value.strip()}",
+            "city": f"I am based in {value.strip()}",
+            "timezone": f"my timezone is {value.strip()}",
+        }
+        text = templates.get(key.strip().lower(), f"{key.strip()} is {value.strip()}")
+        existing = [m for m in self.store.as_of(subject=self.subject) if tag in m.tags]
+        if existing:
+            self.store.supersede(existing[0].id, Memory(
+                text=text,
+                subject=self.subject,
+                source="alexa",
+                valid_from=_now().isoformat(timespec="seconds"),
+                tags=(tag,),
+            ))
+            return f"Updated — your {key.strip()} is now {value.strip()}."
+        self.store.add(Memory(
+            text=text,
+            subject=self.subject,
+            source="alexa",
+            valid_from=_now().isoformat(timespec="seconds"),
+            tags=(tag,),
+        ))
+        return f"Got it — I'll remember your {key.strip()} is {value.strip()}."
 
     # -- the visual: a timeline for Echo Show ------------------------------
 

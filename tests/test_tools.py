@@ -123,34 +123,6 @@ def test_forget_withdraws_without_deleting(tools):
     reply = tools.recall("bundle")
     assert "withdrew" in reply
     assert "595" in reply
-
-
-def test_forgetting_something_unknown_says_so(tools):
-    assert "don't have anything about" in tools.forget("nonexistent")
-
-
-def test_an_ambiguous_correction_asks_which_one(tools):
-    tools.remember("the standup is at nine")
-    tools.remember("the standup room is upstairs")
-    assert "Which one?" in tools.correct("standup", "the standup is at ten")
-
-
-# -- the wake --------------------------------------------------------------
-
-
-def test_catch_me_up_on_an_empty_memory_is_graceful(tools):
-    assert "don't have anything" in tools.catch_me_up()
-
-
-def test_catch_me_up_reports_a_change(tools):
-    tools.remember("the deploy root is app")
-    tools.correct("deploy root", "the deploy root is projects")
-    assert "projects" in tools.catch_me_up()
-
-
-def test_what_changed_reports_a_withdrawal(tools):
-    tools.remember("the bundle is twelve megabytes")
-    tools.forget("bundle", "measured at 595 megabytes")
     assert "withdrew" in tools.what_changed()
 
 

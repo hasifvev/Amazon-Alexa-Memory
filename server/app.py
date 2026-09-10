@@ -42,15 +42,20 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 SERVER_NAME = "Memory"
 SERVER_INSTRUCTIONS = (
-    "Persistent household memory that knows when things changed and who said what. "
-    "Use catch_me_up when the customer arrives or asks what's new. "
+    "Persistent household memory that knows the user, when things changed, and who said what. "
+    "Use catch_me_up when the customer arrives, greets you, or asks what's new — it greets them by name, "
+    "tells them the local time, and briefs them on changes and expiring memories. "
     "Use remember to store a fact, remember_for for something that expires (groceries, travel info). "
     "Use recall to ask what was true now or at any past date. "
     "Use correct when an answer changed, forget when something was never true. "
     "Use share to push a fact into a household member's memory, shared_with_me to see what they sent. "
-    "Use what_changed for recent updates, what_moved for the full correction history, "
-    "wrong_about for withdrawn beliefs. "
+    "Use what_changed for recent updates, what_moved for the full correction history, wrong_about for withdrawn beliefs. "
     "Use timeline for the visual history on Echo Show. "
+    "Use what_time_is_it when asked about the current time, date, day of the week, or to resolve 'today', 'Friday', 'tonight'. "
+    "Use add_to_list to add items to a shopping list, packing list, or any named list. "
+    "Use get_list to read a list aloud. Use remove_from_list to check off a completed item. "
+    "Use track to log a project milestone or status update. Use my_projects to list all tracked goals. "
+    "Use set_profile to store the user's name, location, or timezone — the personality layer uses these to greet them properly. "
     "Answers are short because they are spoken aloud. Every 'who' parameter exists "
     "because an Echo is a shared household device."
 )
@@ -291,6 +296,85 @@ def build_server(store_path: Path | None = None) -> FastMCP:
     )
     def timeline(about: str, who: str | None = None) -> Timeline:
         return tools.for_subject(who).timeline(about)
+
+    @mcp.tool(
+        description=(
+            "Use when the customer asks what the time or date is, or what day it is: "
+            "'what time is it', 'what's today's date', 'what day is it', 'is it Friday yet'. "
+            "Also use to resolve relative time phrases like 'tonight', 'this weekend', 'next Monday'. "
+            "Returns the local time in the user's stored timezone (defaults to MYT UTC+8)."
+        )
+    )
+    def what_time_is_it(who: str | None = None) -> str:
+        return tools.for_subject(who).what_time_is_it()
+
+    @mcp.tool(
+        description=(
+            "Use when the customer wants to add something to a list: 'add milk to my shopping list', "
+            "'put eggs on the grocery list', 'add charger to my packing list'. "
+            "list_name defaults to 'shopping'. Tracks history — if the item was bought before, says so."
+        )
+    )
+    def add_to_list(
+        item: str, list_name: str = "shopping", who: str | None = None
+    ) -> str:
+        return tools.for_subject(who).add_to_list(item, list_name)
+
+    @mcp.tool(
+        description=(
+            "Use when the customer wants to hear their list: 'what's on my shopping list', "
+            "'read my packing list', 'what do I need to buy'. "
+            "list_name defaults to 'shopping'. Reads it aloud with a spoken count."
+        )
+    )
+    def get_list(list_name: str = "shopping", who: str | None = None) -> str:
+        return tools.for_subject(who).get_list(list_name)
+
+    @mcp.tool(
+        description=(
+            "Use when the customer checks off or removes something from a list: "
+            "'remove milk from shopping list', 'I got the eggs', 'cross off bread'. "
+            "list_name defaults to 'shopping'. Returns remaining count."
+        )
+    )
+    def remove_from_list(
+        item: str, list_name: str = "shopping", who: str | None = None
+    ) -> str:
+        return tools.for_subject(who).remove_from_list(item, list_name)
+
+    @mcp.tool(
+        description=(
+            "Use when the customer wants to track a project or goal milestone: "
+            "'track my hackathon as building', 'update Amazon project to submitted', "
+            "'log that EduPlay is in planning'. Stores the status with full history — "
+            "what_moved will show how it progressed."
+        )
+    )
+    def track(
+        project: str, status: str, note: str = "", who: str | None = None
+    ) -> str:
+        return tools.for_subject(who).track(project, status, note)
+
+    @mcp.tool(
+        description=(
+            "Use when the customer wants to see all their tracked projects: "
+            "'what am I working on', 'show my projects', 'what goals am I tracking'. "
+            "Lists current project names and their latest status."
+        )
+    )
+    def my_projects(who: str | None = None) -> str:
+        return tools.for_subject(who).my_projects()
+
+    @mcp.tool(
+        description=(
+            "Use when the customer provides personal profile information: "
+            "'my name is Hasif', 'I live in Kuala Lumpur', 'my timezone is UTC+8', "
+            "'call me by this name'. Stores name/location/timezone so the assistant "
+            "can greet them personally and show local time. key can be: name, location, city, timezone."
+        )
+    )
+    def set_profile(key: str, value: str, who: str | None = None) -> str:
+        return tools.for_subject(who).set_profile(key, value)
 
     # -- the simulated Alexa+ experience ---------------------------------
     #
