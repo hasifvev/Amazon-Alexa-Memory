@@ -42,10 +42,17 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 SERVER_NAME = "Memory"
 SERVER_INSTRUCTIONS = (
-    "Persistent memory that knows when things changed. Use catch_me_up to hear "
-    "what is new, remember to store a fact, recall to ask what was true at any "
-    "point in time, correct when an answer has changed, and forget when "
-    "something was never true. Answers are short because they are spoken aloud."
+    "Persistent household memory that knows when things changed and who said what. "
+    "Use catch_me_up when the customer arrives or asks what's new. "
+    "Use remember to store a fact, remember_for for something that expires (groceries, travel info). "
+    "Use recall to ask what was true now or at any past date. "
+    "Use correct when an answer changed, forget when something was never true. "
+    "Use share to push a fact into a household member's memory, shared_with_me to see what they sent. "
+    "Use what_changed for recent updates, what_moved for the full correction history, "
+    "wrong_about for withdrawn beliefs. "
+    "Use timeline for the visual history on Echo Show. "
+    "Answers are short because they are spoken aloud. Every 'who' parameter exists "
+    "because an Echo is a shared household device."
 )
 
 
@@ -175,6 +182,59 @@ def build_server(store_path: Path | None = None) -> FastMCP:
     )
     def wrong_about(who: str | None = None) -> str:
         return tools.for_subject(who).wrong_about()
+
+    @mcp.tool(
+        description=(
+            "Use when the customer wants to remember something only for a limited "
+            "time: 'remember to buy milk just for today', 'note that the guest "
+            "wifi password is X until Friday', 'remind me about the dentist for "
+            "the next 2 days'. The fact expires automatically — it stops "
+            "answering current questions after the deadline, but the record that "
+            "it was true is kept. 'until' accepts: 'end of today', 'tomorrow', "
+            "'in 3 days', 'this week', or a date like 2026-10-01."
+        )
+    )
+    def remember_for(
+        fact: str, until: str, tags: list[str] | None = None, who: str | None = None
+    ) -> str:
+        return tools.for_subject(who).remember_for(fact, until, tags=tags)
+
+    @mcp.tool(
+        description=(
+            "Use when the customer wants to push a fact into a household member's "
+            "memory: 'tell Aisyah the new wifi password is X', 'let Mum know "
+            "dinner is at seven', 'share with Dad that the car is at the "
+            "mechanic'. Stores the fact in the named person's memory, tagged "
+            "with who sent it. The recipient sees it attributed on their next "
+            "catch-up. Set 'who' to the current speaker if not the default person."
+        )
+    )
+    def share(fact: str, with_who: str, who: str | None = None) -> str:
+        return tools.for_subject(who).share(fact, with_who)
+
+    @mcp.tool(
+        description=(
+            "Use when the customer asks what has been shared with them by other "
+            "household members: 'what did Hasif share with me', 'anything shared "
+            "with me', 'what did someone leave for me'. Returns facts other "
+            "people pushed using the share tool, attributed to the sender."
+        )
+    )
+    def shared_with_me(who: str | None = None) -> str:
+        return tools.for_subject(who).shared_with_me()
+
+    @mcp.tool(
+        description=(
+            "Use when the customer asks which facts have moved over time — not "
+            "mistakes, but legitimate changes: 'what has changed the most', "
+            "'which facts have the longest history', 'what has moved since I "
+            "started'. Lists superseded facts and how long each version was held. "
+            "Distinct from wrong_about (which shows withdrawn beliefs) and "
+            "what_changed (which shows recent updates)."
+        )
+    )
+    def what_moved(who: str | None = None) -> str:
+        return tools.for_subject(who).what_moved()
 
     # -- MCP Apps: a visual timeline for devices with a screen -------------
     #

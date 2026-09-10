@@ -330,3 +330,102 @@ def test_a_timeline_shows_only_that_persons_history(tools):
     texts = [e.text for e in hasif.timeline("standup").entries]
     assert any("ten" in t for t in texts)
     assert not any("eight" in t for t in texts)
+
+
+# -- new features: remember_for, share, shared_with_me, what_moved ----------
+
+
+def test_remember_for_stores_with_expiry(tools):
+    """An ephemeral memory is present before it expires and absent after."""
+    from datetime import timedelta
+    from server.tools import _parse_until, _now
+
+    # Store a memory that expires tomorrow
+    reply = tools.remember_for("the guest wifi password is GuestPass", "tomorrow")
+    assert "guest wifi" in reply.lower()
+    assert "tomorrow" in reply.lower()
+
+    # It should be recallable right now
+    assert "GuestPass" in tools.recall("guest wifi")
+
+
+def test_remember_for_expired_is_not_recalled(tools):
+    """A memory whose valid_until is in the past does not appear in recall."""
+    from core.store import Memory, Kind
+    from datetime import timedelta
+    from server.tools import _now
+
+    # Manually insert an already-expired memory
+    past = (_now() - timedelta(hours=1)).isoformat(timespec="seconds")
+    earlier = (_now() - timedelta(hours=2)).isoformat(timespec="seconds")
+    expired = Memory(
+        text="the temporary code is 9999",
+        subject="default",
+        source="test",
+        asserted_at=earlier,
+        valid_from=earlier,
+        valid_until=past,
+    )
+    tools.store.add(expired)
+
+    # Should not appear in current recall
+    reply = tools.recall("temporary code")
+    assert "9999" not in reply
+
+
+def test_remember_for_bad_expiry_returns_error(tools):
+    """An unparseable until phrase returns an error, not an exception."""
+    reply = tools.remember_for("buy milk", "whenever I feel like it")
+    assert "can't work out" in reply.lower() or "i can't" in reply.lower()
+
+
+def test_share_puts_fact_in_recipients_memory(tools):
+    """Sharing a fact makes it appear in the recipient's memory, not the sender's."""
+    hasif = tools.for_subject("hasif")
+    aisyah = tools.for_subject("aisyah")
+
+    reply = hasif.share("the wifi password is Network2026", "aisyah")
+    assert "Aisyah" in reply
+    assert "Network2026" in reply
+
+    # Appears for aisyah
+    assert "Network2026" in aisyah.recall("wifi password")
+    # Does NOT appear for hasif
+    assert "Network2026" not in hasif.recall("wifi password")
+
+
+def test_shared_with_me_lists_received_facts(tools):
+    """shared_with_me returns facts pushed by others, attributed to the sender."""
+    hasif = tools.for_subject("hasif")
+    aisyah = tools.for_subject("aisyah")
+
+    hasif.share("dinner is at seven tonight", "aisyah")
+
+    reply = aisyah.shared_with_me()
+    assert "dinner is at seven" in reply.lower()
+    assert "hasif" in reply.lower()
+
+
+def test_shared_with_me_empty_when_nothing_shared(tools):
+    """shared_with_me returns a clear message when nothing has been shared."""
+    reply = tools.shared_with_me()
+    assert "nobody" in reply.lower() or "nothing" in reply.lower()
+
+
+def test_what_moved_lists_superseded_facts(tools):
+    """what_moved returns facts that changed, with how long each was held."""
+    tools.remember("the standup is at nine")
+    import time; time.sleep(0.01)
+    tools.correct("standup", "the standup is at ten")
+
+    reply = tools.what_moved()
+    assert "standup" in reply.lower()
+    assert "nine" in reply.lower()
+    assert "ten" in reply.lower()
+
+
+def test_what_moved_empty_when_nothing_changed(tools):
+    """what_moved returns a clear message when nothing has a correction history."""
+    tools.remember("the standup is at nine")
+    reply = tools.what_moved()
+    assert "nothing" in reply.lower() or "first version" in reply.lower()

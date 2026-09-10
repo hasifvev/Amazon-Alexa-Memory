@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, Field
 
-from core.insight import churn, mistakes
+from core.insight import churn, corrections, mistakes
 from core.store import Kind, Memory, MemoryStore
 from core.tiers import Trigger
 from core.wake import wake
@@ -110,6 +110,59 @@ def _spoken_date(moment: datetime) -> str:
 def _fmt_date(moment: datetime) -> str:
     """Windows has no %-d, so format the day without padding by hand."""
     return f"{moment.day} {moment.strftime('%B %Y')}"
+
+
+def _parse_until(phrase: str, *, now: datetime | None = None) -> datetime:
+    """Turn a forward-looking time phrase into an expiry instant.
+
+    Complements parse_when for writing rather than reading: people say
+    'just for today', 'until tomorrow', 'for the next 3 days' when creating
+    ephemeral memories, not 'tomorrow ago'.
+    """
+    moment = now or _now()
+    text = phrase.strip().lower()
+
+    # Forward-looking relative phrases
+    in_match = re.fullmatch(r"(?:in\s+)?(\d+)\s+(day|week|month|year)s?", text)
+    if in_match:
+        count = int(in_match.group(1))
+        unit = in_match.group(2)
+        days = {"day": 1, "week": 7, "month": 30, "year": 365}[unit] * count
+        return moment + timedelta(days=days)
+
+    if text in {"today", "end of today", "tonight", "end of day"}:
+        return moment.replace(hour=23, minute=59, second=59, microsecond=0)
+    if text in {"tomorrow", "end of tomorrow"}:
+        return (moment + timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=0)
+    if text in {"this week", "end of the week"}:
+        return moment + timedelta(days=7)
+
+    # Fall back to parse_when for ISO dates and backward phrases used as expiries
+    try:
+        result = parse_when(phrase, now=now)
+        if result <= moment:
+            raise ValueError(
+                f"The expiry {phrase!r} is in the past. Use a future date or 'in 3 days'."
+            )
+        return result
+    except ValueError:
+        raise ValueError(
+            f"I can't work out when {phrase!r} is. Try 'end of today', 'tomorrow', "
+            "'in 3 days', or a date like 2026-10-01."
+        )
+
+
+def _fmt_until(moment: datetime) -> str:
+    """Human label for an expiry instant."""
+    now = _now()
+    delta = (moment - now).days
+    if delta == 0:
+        return "end of today"
+    if delta == 1:
+        return "tomorrow"
+    if delta < 8:
+        return f"end of {moment.strftime('%A')}"
+    return _fmt_date(moment)
 
 
 def _sentence(text: str) -> str:
@@ -250,6 +303,34 @@ class MemoryTools:
         )
         self.store.add(memory)
         return f"Got it. I'll remember that {fact.strip()}."
+
+    def remember_for(self, fact: str, until: str, *, tags: list[str] | None = None) -> str:
+        """Store something that expires automatically.
+
+        The natural voice use case for expiring memory: grocery lists, travel
+        info, one-day reminders. The memory stays in the log after expiry —
+        it just stops answering current questions. History remains intact.
+
+        `until` accepts the same phrases parse_when does, plus a few forward-
+        looking forms: 'end of today', 'tomorrow', 'in 3 days', 'next Monday'.
+        """
+        if not fact.strip():
+            return "I need something to remember."
+        try:
+            expires = _parse_until(until)
+        except ValueError as exc:
+            return str(exc)
+        memory = Memory(
+            text=fact.strip(),
+            subject=self.subject,
+            source="alexa",
+            valid_from=_now().isoformat(timespec="seconds"),
+            valid_until=expires.isoformat(timespec="seconds"),
+            tags=tuple(tags or ()),
+        )
+        self.store.add(memory)
+        label = _fmt_until(expires)
+        return f"Got it. I'll remember that {fact.strip()}, until {label}."
 
     def correct(self, about: str, new_fact: str) -> str:
         """The answer changed. Supersede, keeping the old one for history."""
@@ -521,6 +602,86 @@ class MemoryTools:
             subject=who.strip().lower(),
             utc_offset_hours=self.utc_offset_hours,
         )
+
+    SHARED_TAG_PREFIX = "shared-by:"
+
+    def share(self, fact: str, with_who: str) -> str:
+        """Push a fact directly into someone else's memory on this device.
+
+        An Echo is a shared household device. This is the tool that makes that
+        real: "Tell Aisyah the wifi password changed" stores a fact in Aisyah's
+        memory space, tagged with who sent it. When Aisyah next asks, the
+        answer is there — and it says who told her.
+        """
+        if not fact.strip():
+            return "I need something to share."
+        if not with_who.strip():
+            return "I need a name to share with."
+        recipient = with_who.strip().lower()
+        tag = f"{self.SHARED_TAG_PREFIX}{self.subject}"
+        recipient_tools = self.for_subject(recipient)
+        memory = Memory(
+            text=fact.strip(),
+            subject=recipient,
+            source="alexa",
+            valid_from=_now().isoformat(timespec="seconds"),
+            tags=(tag,),
+        )
+        self.store.add(memory)
+        name = with_who.strip().title()
+        return f"Done. {name} will see that {fact.strip()} next time they catch up."
+
+    def shared_with_me(self) -> str:
+        """Facts that other household members have shared with this person.
+
+        Returns what was pushed via `share`, attributed to the sender. A person
+        joining the conversation cold can ask what they missed without wading
+        through their own notes.
+        """
+        shared = [
+            m
+            for m in self.store.as_of(subject=self.subject)
+            if any(t.startswith(self.SHARED_TAG_PREFIX) for t in m.tags)
+        ]
+        if not shared:
+            return "Nobody has shared anything with you yet."
+        lines = []
+        for m in shared[:MAX_SPOKEN_ITEMS]:
+            sender_tag = next(
+                (t for t in m.tags if t.startswith(self.SHARED_TAG_PREFIX)), None
+            )
+            sender = sender_tag[len(self.SHARED_TAG_PREFIX):].title() if sender_tag else "someone"
+            lines.append(f"{m.text} — from {sender}")
+        extra = len(shared) - len(lines)
+        tail = f", and {_plural(extra, 'other')}" if extra > 0 else ""
+        return _sentence(f"Shared with you: {_join(lines)}{tail}")
+
+    # -- what has moved vs what was wrong ---------------------------------
+
+    def what_moved(self, limit: int = 3) -> str:
+        """Facts whose answer CHANGED over time — not wrong, the world moved.
+
+        Distinct from wrong_about, which lists beliefs that were never true.
+        This lists beliefs that were true at the time and then superseded: the
+        classic examples are standup times, addresses, project paths — things
+        that change and leave a real history behind them.
+
+        Uses corrections() from insight, which is already implemented in the
+        core engine but was not previously exposed as a tool.
+        """
+        moved = corrections(self.store, subject=self.subject)
+        if not moved:
+            return "Nothing has changed history yet — every fact I know is still the first version."
+        lines = []
+        for c in moved[:limit]:
+            days = c.held_days
+            duration = "less than a day" if days < 1 else _plural(days, "day")
+            lines.append(
+                f"{c.replaced_by.text}, which was {c.memory.text} for {duration}"
+            )
+        head = _plural(len(moved), "fact")
+        tail = f", and {_plural(len(moved) - len(lines), 'other')}" if len(moved) > len(lines) else ""
+        return _sentence(f"{head} changed. The longest-standing: {_join(lines)}{tail}")
 
     # -- the visual: a timeline for Echo Show ------------------------------
 
