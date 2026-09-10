@@ -73,7 +73,9 @@ def _security_settings() -> TransportSecuritySettings:
     hosts = [h.strip() for h in os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
 
     return TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
+        # Disabled for the public demo deployment. On a production server this
+        # would be enabled and MCP_ALLOWED_ORIGINS would list the real origins.
+        enable_dns_rebinding_protection=False,
         allowed_origins=origins or ["http://127.0.0.1:8000", "http://localhost:8000"],
         allowed_hosts=hosts or ["127.0.0.1:8000", "localhost:8000", "127.0.0.1", "localhost"],
     )
