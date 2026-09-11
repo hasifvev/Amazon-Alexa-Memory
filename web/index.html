@@ -238,15 +238,19 @@ function route(said) {
   // TIER 1 — High-confidence regex patterns (exact intent match)
   // ====================================================================
 
-  // -- PROFILE: name --
-  if ((m = s.match(/^(?:my name is|i'm called|call me|you can call me|i go by|i am|i'm)\s+([a-z][a-z ]{0,30})$/)))
+  // -- PROFILE: location (MUST come before name — "I'm from X" is location, not name) --
+  if ((m = s.match(/^(?:i live in|i'm in|i am in|i'm from|i am from|i'm based in|i am based in|my (?:location|city|hometown|country|town) is|i reside in|based in|currently in|living in)\s+(.+)$/)))
+    return {tool:"set_profile", args:{key:"location", value:m[1].trim(), who}};
+
+  // -- PROFILE: name (restricted — won't match "i'm from/in/based/at") --
+  if ((m = s.match(/^(?:my name is|i'm called|call me|you can call me|i go by)\s+([a-z][a-z ]{0,30})$/)))
+    return {tool:"set_profile", args:{key:"name", value:m[1].trim(), who}};
+  if ((m = s.match(/^(?:i am|i'm)\s+(?!from\b|in\b|based\b|at\b|living\b|currently\b)([a-z][a-z ]{0,30})$/)))
     return {tool:"set_profile", args:{key:"name", value:m[1].trim(), who}};
   if ((m = s.match(/^([a-z]+),?\s+(?:that's my name|is my name|here)$/)))
     return {tool:"set_profile", args:{key:"name", value:m[1].trim(), who}};
 
-  // -- PROFILE: location --
-  if ((m = s.match(/^(?:i live in|i'm in|i am in|i'm from|i am from|i'm based in|i am based in|my (?:location|city|hometown|country|town) is|i reside in|based in|currently in|living in)\s+(.+)$/)))
-    return {tool:"set_profile", args:{key:"location", value:m[1].trim(), who}};
+
 
   // -- PROFILE: timezone --
   if ((m = s.match(/^(?:my timezone is|my time zone is|i'm in timezone|i'm (?:utc|gmt)\s*[+-]?\d+|set (?:my )?timezone (?:to )?)\s*(.+)$/)))
