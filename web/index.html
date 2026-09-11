@@ -230,74 +230,194 @@ async function callTool(name, args) {
 }
 
 function route(said) {
-  const s = said.toLowerCase().trim();
+  const s = said.toLowerCase().trim().replace(/[?.!]+$/,"");
   let m;
   const who = currentWho || undefined;
 
-  // -- personality: profile setup --
-  if ((m = s.match(/^(?:my name is|call me|i'm|i am)\s+(.+?)\s*[\.!]?$/)))
+  // ====================================================================
+  // TIER 1 — High-confidence regex patterns (exact intent match)
+  // ====================================================================
+
+  // -- PROFILE: name --
+  if ((m = s.match(/^(?:my name is|i'm called|call me|you can call me|i go by|i am|i'm)\s+([a-z][a-z ]{0,30})$/)))
     return {tool:"set_profile", args:{key:"name", value:m[1].trim(), who}};
-  if ((m = s.match(/^(?:i live in|i'm in|i am in|i am based in|i'm based in|my (?:location|city|hometown) is)\s+(.+?)\s*[\.!]?$/)))
+  if ((m = s.match(/^([a-z]+),?\s+(?:that's my name|is my name|here)$/)))
+    return {tool:"set_profile", args:{key:"name", value:m[1].trim(), who}};
+
+  // -- PROFILE: location --
+  if ((m = s.match(/^(?:i live in|i'm in|i am in|i'm from|i am from|i'm based in|i am based in|my (?:location|city|hometown|country|town) is|i reside in|based in|currently in|living in)\s+(.+)$/)))
     return {tool:"set_profile", args:{key:"location", value:m[1].trim(), who}};
-  if ((m = s.match(/^my timezone is\s+(.+?)\s*[\.!]?$/)))
+
+  // -- PROFILE: timezone --
+  if ((m = s.match(/^(?:my timezone is|my time zone is|i'm in timezone|i'm (?:utc|gmt)\s*[+-]?\d+|set (?:my )?timezone (?:to )?)\s*(.+)$/)))
     return {tool:"set_profile", args:{key:"timezone", value:m[1].trim(), who}};
 
-  // -- personality: time and date --
-  if (/^(?:what(?:'s| is) the )?(?:time|date|day)\b|^what time|^what day|^what(?:'s| is) today|^is it (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(s))
+  // -- TIME / DATE --
+  if (/^(?:what(?:'s| is)? the )?(?:time|date|day)\b|^what time|^what day|^what(?:'s| is) today|^today(?:'s| is)? (?:date|day)|^(?:current|local) (?:time|date|day)|^(?:is it|it is) (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|^what(?:'s| is) (?:the )?(?:current |local )?(?:time|date|day)|^tell me the (?:time|date|day)|^do you know what (?:time|day|date)/i.test(s))
     return {tool:"what_time_is_it", args:{who}};
 
-  // -- lists: shopping, packing, errands --
-  if ((m = s.match(/^(?:add|put)\s+(.+?)\s+(?:to|on)\s+(?:my\s+)?(.+?)\s*list\s*[\.!]?$/)))
-    return {tool:"add_to_list", args:{item:m[1].trim(), list_name:m[2].trim(), who}};
-  if ((m = s.match(/^(?:add|put)\s+(.+?)\s+(?:to|on)\s+(?:the|my)\s+list\s*[\.!]?$/)))
+  // -- LISTS: add --
+  if ((m = s.match(/^(?:add|put|throw|toss|stick|include)\s+(.+?)\s+(?:to|on|in|into|onto)\s+(?:my\s+|the\s+)?(.+?)\s*list$/)))
+    return {tool:"add_to_list", args:{item:m[1].trim(), list_name:m[2].trim().replace(/\s+$/,""), who}};
+  if ((m = s.match(/^(?:add|put|throw|toss)\s+(.+?)\s+(?:to|on|in)\s+(?:my|the)\s+(?:list|cart|basket)$/)))
     return {tool:"add_to_list", args:{item:m[1].trim(), list_name:"shopping", who}};
-  if ((m = s.match(/^(?:what(?:'s| is) on|read|show)\s+(?:my\s+)?(.+?)\s*list\s*[\?\.]?$/)))
-    return {tool:"get_list", args:{list_name:m[1].trim(), who}};
-  if ((m = s.match(/^(?:remove|cross off|check off|take off|i got the?)\s+(.+?)\s+(?:from|off)\s+(?:my\s+)?(?:the\s+)?(.+?)\s*list\s*[\.!]?$/)))
-    return {tool:"remove_from_list", args:{item:m[1].trim(), list_name:m[2].trim(), who}};
-  if ((m = s.match(/^(?:remove|cross off|check off|take off|i got the?)\s+(.+?)\s+(?:from|off)\s+(?:the|my)\s+list\s*[\.!]?$/)))
-    return {tool:"remove_from_list", args:{item:m[1].trim(), list_name:"shopping", who}};
+  if ((m = s.match(/^(?:i need|we need|buy|get|pick up|grab)\s+(.+?)(?:\s+(?:from the store|from the shop|at the store))?$/))) {
+    const item = m[1].trim().replace(/^(?:some|more|a|an|the)\s+/, "");
+    return {tool:"add_to_list", args:{item, list_name:"shopping", who}};
+  }
 
-  // -- projects: tracking goals --
-  if ((m = s.match(/^track\s+(.+?)\s+as\s+(.+?)(?:\s*[-—]\s*(.+))?\s*[\.!]?$/)))
+  // -- LISTS: read --
+  if ((m = s.match(/^(?:what(?:'s| is) on|read|show|list|give me|read me|tell me)\s+(?:my\s+|the\s+)?(.+?)\s*list$/)))
+    return {tool:"get_list", args:{list_name:m[1].trim(), who}};
+  if (/^(?:what(?:'s| is) on|read|show|give me)\s+(?:my|the)\s+(?:list|cart|basket)/.test(s))
+    return {tool:"get_list", args:{list_name:"shopping", who}};
+  if (/^(?:what do i need to (?:buy|get|pick up)|what(?:'s| am i) (?:buying|getting|picking up)|shopping list|my list)/.test(s))
+    return {tool:"get_list", args:{list_name:"shopping", who}};
+
+  // -- LISTS: remove --
+  if ((m = s.match(/^(?:remove|cross off|check off|take off|strike|delete|scratch|done with|got the?|picked up the?|bought the?)\s+(.+?)\s+(?:from|off)\s+(?:my\s+|the\s+)?(.+?)\s*list$/)))
+    return {tool:"remove_from_list", args:{item:m[1].trim(), list_name:m[2].trim(), who}};
+  if ((m = s.match(/^(?:remove|cross off|check off|take off|done with|got the?|i (?:got|bought|picked up)(?: the)?)\s+(.+?)(?:\s+(?:from|off)\s+(?:the|my)\s+list)?$/))) {
+    if (/list/.test(s) || /got |bought |picked up|cross off|check off/.test(s))
+      return {tool:"remove_from_list", args:{item:m[1].trim(), list_name:"shopping", who}};
+  }
+
+  // -- PROJECTS: track --
+  if ((m = s.match(/^(?:track|log|start tracking|begin tracking)\s+(.+?)\s+(?:as|with status|status)\s+(.+?)(?:\s*[-—]\s*(.+))?$/)))
     return {tool:"track", args:{project:m[1].trim(), status:m[2].trim(), note:m[3]?.trim()||"", who}};
-  if ((m = s.match(/^(?:update|set)\s+(.+?)\s+(?:to|as|status)\s+(.+?)\s*[\.!]?$/)))
+  if ((m = s.match(/^(?:update|set|change|move)\s+(.+?)\s+(?:to|as|status to|status)\s+(.+)$/)))
     return {tool:"track", args:{project:m[1].trim(), status:m[2].trim(), who}};
-  if (/^(?:what(?:'s| am| are).*(?:working on|tracking|projects|goals)|my projects|show.*projects)/.test(s))
+  if ((m = s.match(/^(.+?)\s+(?:is now|status is|moved to|changed to)\s+(.+)$/)))
+    return {tool:"track", args:{project:m[1].trim(), status:m[2].trim(), who}};
+
+  // -- PROJECTS: list --
+  if (/^(?:what(?:'s| am| are)?.*(?:working on|tracking|my (?:projects|goals|tasks))|my projects|show.*(?:projects|goals|tasks)|list.*(?:projects|goals)|what.*(?:projects|goals)|active (?:projects|goals)|current (?:projects|goals))/.test(s))
     return {tool:"my_projects", args:{who}};
 
-  // -- original tools (preserved) --
-  if (/^(catch me up|good morning|hello|hi|wake up|anything new)/.test(s))
-    return {tool:"catch_me_up", args:{full:/full|everything/.test(s), who}};
-  if (/wrong about|been wrong|mistakes?/.test(s))
+  // -- GREETING / CATCH ME UP --
+  if (/^(?:catch me up|good (?:morning|afternoon|evening|night)|hello|hey|hi|wake up|anything new|what(?:'s| is) (?:new|up|happening|going on)|brief me|briefing|start|morning|whats new|status update|bring me up to (?:speed|date))/.test(s))
+    return {tool:"catch_me_up", args:{full:/full|everything|detail/.test(s), who}};
+
+  // -- WRONG ABOUT --
+  if (/wrong about|been wrong|mistakes?|incorrect|what.*(?:retracted|withdrawn|wrong)/.test(s))
     return {tool:"wrong_about", args:{who}};
-  if (/what.*(moved|changed most|longest history)/.test(s))
+
+  // -- WHAT MOVED --
+  if (/what.*(moved|changed most|longest history|evolved|biggest shifts|corrections over)/.test(s))
     return {tool:"what_moved", args:{who}};
-  if (/what.*(changed|new since)/.test(s))
+
+  // -- WHAT CHANGED --
+  if (/what.*(changed|new since|different|updated recently|happened since|recent changes)/.test(s))
     return {tool:"what_changed", args:{since:"14 days ago", who}};
-  if (/shared with me|anything.*shared|what did .* share|left for me/.test(s))
+
+  // -- SHARED --
+  if (/shared with me|anything.*shared|what did .* share|left for me|messages for me|anything for me|what.*(?:tell|told|leave|left) (?:me|for me)/.test(s))
     return {tool:"shared_with_me", args:{who}};
-  if ((m = s.match(/^(?:tell|let|share with|inform)\s+(\w+)\s+(?:that\s+|know\s+(?:that\s+)?)?(.+)$/)))
+  if ((m = s.match(/^(?:tell|let|share with|inform|send|message|notify)\s+(\w+)\s+(?:that\s+|know\s+(?:that\s+)?)?(.+)$/)))
     return {tool:"share", args:{fact:m[2].trim(), with_who:m[1], who}};
-  if ((m = s.match(/^(?:remember|note|remind me)\s+(?:that\s+)?(.+?)\s+(?:until|just for|for the next|for)\s+(.+)$/)))
+
+  // -- REMEMBER FOR (time-bounded) --
+  if ((m = s.match(/^(?:remember|note|remind me|save|store|keep in mind)\s+(?:that\s+)?(.+?)\s+(?:until|just for|for the next|for|till|through|expires?)\s+(.+)$/)))
     return {tool:"remember_for", args:{fact:m[1].trim(), until:m[2].trim(), who}};
-  if ((m = s.match(/^(?:remember|note)\s+(?:that\s+)?(.+)$/)))
+
+  // -- REMEMBER --
+  if ((m = s.match(/^(?:remember|note|remind me|save|store|keep in mind|don't forget|do not forget|make a note|jot down)\s+(?:that\s+)?(.+)$/)))
     return {tool:"remember", args:{fact:m[1], who}};
-  if ((m = s.match(/^(?:change|correct)\s+(.+?)\s+to\s+(.+)$/)))
+
+  // -- CORRECT --
+  if ((m = s.match(/^(?:change|correct|fix|actually|no wait|update)\s+(.+?)\s+to\s+(.+)$/)))
     return {tool:"correct", args:{about:m[1], new_fact:`${m[1]} is ${m[2]}`, who}};
-  if ((m = s.match(/^(?:forget|withdraw)\s+(.+)$/)))
+  if ((m = s.match(/^actually,?\s+(?:the\s+)?(.+?)\s+(?:is|are|was)\s+(.+)$/)))
+    return {tool:"correct", args:{about:m[1], new_fact:`${m[1]} is ${m[2]}`, who}};
+
+  // -- FORGET --
+  if ((m = s.match(/^(?:forget|withdraw|never mind|disregard|that(?:'s| is) (?:wrong|not true|incorrect)|scratch|drop)\s+(?:about\s+|that\s+)?(.+)$/)))
     return {tool:"forget", args:{about:m[1], who}};
-  if ((m = s.match(/^(?:show me the history of|history of|how has|timeline of|what have I believed about)\s+(.+?)[\?]?$/)))
+
+  // -- TIMELINE --
+  if ((m = s.match(/^(?:show me the history of|history of|how has|timeline of|what have I believed about|show.*timeline|evolution of|track record of|story of)\s+(.+?)$/)))
     return {tool:"timeline", args:{about:m[1], who}};
-  if ((m = s.match(/^what (?:was|were) (?:the |my )?(.+?)(?: on| in| back in| at)?\s+([a-z]+ \d{1,2},? \d{4}|\d{4}-\d{2}-\d{2}|\d+ \w+ ago|june|may|march|april|january|february|last week|last month|yesterday)\??$/))) {
+
+  // -- RECALL (time-travel) --
+  if ((m = s.match(/^what (?:was|were) (?:the |my )?(.+?)(?: on| in| back in| at)?\s+([a-z]+ \d{1,2},? \d{4}|\d{4}-\d{2}-\d{2}|\d+ \w+ ago|june|may|march|april|january|february|july|august|september|october|november|december|last week|last month|yesterday)\??$/))) {
     const MO={january:"01",february:"02",march:"03",april:"04",may:"05",june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12"};
     let when=m[2]; if(MO[when]) when=`2026-${MO[when]}-15`;
     return {tool:"recall", args:{about:m[1], when, who}};
   }
-  if ((m = s.match(/^(?:what|when|who|where)(?:'s| is| are| does| do)?\s+(?:the |my )?(.+?)[\?]?$/)))
+
+  // ====================================================================
+  // TIER 2 — Keyword scoring fallback (handles messy / unexpected input)
+  // ====================================================================
+  const TOOL_KEYWORDS = {
+    set_profile:      {words:["name","call","called","live","location","city","hometown","timezone","from","based"], weight:3},
+    what_time_is_it:  {words:["time","date","day","today","clock","hour","morning","afternoon","evening","tonight","friday","monday","tuesday","wednesday","thursday","saturday","sunday","calendar","schedule"], weight:3},
+    add_to_list:      {words:["add","buy","need","shopping","list","grocery","groceries","pick","grab","milk","eggs","bread","packing","pack","cart","basket"], weight:2},
+    get_list:         {words:["list","shopping","show","read","what","on","items","things","need","buy"], weight:2},
+    remove_from_list: {words:["remove","cross","check","off","done","got","bought","picked","scratch"], weight:3},
+    track:            {words:["track","project","status","milestone","progress","working","started","finished","complete","build","building","planning","shipped","launched","deploy","deadline"], weight:2},
+    my_projects:      {words:["projects","goals","tracking","tasks","active","current","working"], weight:2},
+    catch_me_up:      {words:["morning","hello","hey","hi","sup","yo","new","update","brief","start","back","returned"], weight:1},
+    remember:         {words:["remember","note","save","store","keep","mind","forget","jot"], weight:1},
+    recall:           {words:["what","where","when","who","how","why","tell","know","about"], weight:1},
+    what_changed:     {words:["changed","different","new","recent","update","since","happened","lately"], weight:2},
+    share:            {words:["tell","share","send","message","inform","notify","let"], weight:2},
+  };
+
+  // Score each tool
+  const words = s.split(/\s+/);
+  let best = null, bestScore = 0;
+  for (const [tool, {words: kw, weight}] of Object.entries(TOOL_KEYWORDS)) {
+    let score = 0;
+    for (const w of words) {
+      if (kw.includes(w)) score += weight;
+    }
+    if (score > bestScore) { bestScore = score; best = tool; }
+  }
+
+  // If keyword scoring found a strong match, try to extract args
+  if (bestScore >= 4 && best) {
+    switch(best) {
+      case "set_profile": {
+        if (/name/.test(s)) {
+          const v = s.replace(/.*(?:name is|call me|i'm|i am)\s*/,"").trim();
+          if (v) return {tool:"set_profile", args:{key:"name", value:v, who}};
+        }
+        if (/live|from|based|city|location|in/.test(s)) {
+          const v = s.replace(/.*(?:live in|from|based in|city is|location is|i'm in|i am in)\s*/,"").trim();
+          if (v) return {tool:"set_profile", args:{key:"location", value:v, who}};
+        }
+        break;
+      }
+      case "what_time_is_it":
+        return {tool:"what_time_is_it", args:{who}};
+      case "add_to_list": {
+        // Try to extract item
+        const cleaned = s.replace(/^(?:can you |please |could you |i need to |i want to )/,"");
+        const addM = cleaned.match(/(?:add|buy|get|need|pick up|grab)\s+(.+?)(?:\s+(?:to|on|from|at)\s+.*)?$/);
+        if (addM) return {tool:"add_to_list", args:{item:addM[1].trim().replace(/^(?:some|more|a|an|the)\s+/,""), list_name:"shopping", who}};
+        break;
+      }
+      case "get_list":
+        return {tool:"get_list", args:{list_name:"shopping", who}};
+      case "my_projects":
+        return {tool:"my_projects", args:{who}};
+      case "catch_me_up":
+        return {tool:"catch_me_up", args:{who}};
+      case "what_changed":
+        return {tool:"what_changed", args:{since:"14 days ago", who}};
+    }
+  }
+
+  // ====================================================================
+  // TIER 3 — Generic recall (always a reasonable fallback)
+  // ====================================================================
+  if ((m = s.match(/^(?:what|when|who|where|how|why|do you (?:know|remember)|can you (?:tell|remind))(?:'s| is| are| does| do| was| were)?\s+(?:the |my |about |a )?(.+?)$/)))
     return {tool:"recall", args:{about:m[1].replace(/\?$/,""), who}};
+
+  // Bare input → treat as recall (judges searching for stored facts)
   return {tool:"recall", args:{about:s, who}};
 }
+
 
 async function say(text) {
   if (!text.trim()) return;
