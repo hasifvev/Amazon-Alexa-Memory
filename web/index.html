@@ -155,17 +155,22 @@ let sessionId = null, msgId = 0, hourOverride = null, currentWho = "";
 
 const SUGGESTIONS = [
   { text: "catch me up",                          tag: null },
-  { text: "what time is standup?",                tag: null },
-  { text: "what was it in June?",                 tag: null },
+  { text: "what time is it?",                     tag: null },
   { text: "what has changed lately?",             tag: null },
-  { text: "show me the history of standup",       tag: null },
   { text: "what have I been wrong about?",        tag: null },
-  { text: "what has moved over time?",            tag: "new" },
-  { text: "remember to buy milk just for today",  tag: "new" },
-  { text: "note dentist is at 3pm until Friday",  tag: "new" },
-  { text: "tell Aisyah the new wifi is Guest2026",tag: "new" },
-  { text: "let Hasif know dinner is at seven",    tag: "new" },
-  { text: "what has been shared with me?",        tag: "new" },
+  { text: "my name is Hasif",                     tag: "new" },
+  { text: "I live in Kuala Lumpur",               tag: "new" },
+  { text: "add milk to my shopping list",         tag: "new" },
+  { text: "what's on my shopping list?",          tag: "new" },
+  { text: "track Amazon Hackathon as building",   tag: "new" },
+  { text: "what am I working on?",               tag: "new" },
+  { text: "remember to buy milk just for today",  tag: null },
+  { text: "note dentist is at 3pm until Friday",  tag: null },
+  { text: "tell Aisyah the new wifi is Guest2026",tag: null },
+  { text: "let Hasif know dinner is at seven",    tag: null },
+  { text: "what has been shared with me?",        tag: null },
+  { text: "show me the history of standup",       tag: null },
+  { text: "what has moved over time?",            tag: null },
 ];
 
 function packet(dir, method, body, timing) {
@@ -229,6 +234,39 @@ function route(said) {
   let m;
   const who = currentWho || undefined;
 
+  // -- personality: profile setup --
+  if ((m = s.match(/^(?:my name is|call me|i'm|i am)\s+(.+?)\s*[\.!]?$/)))
+    return {tool:"set_profile", args:{key:"name", value:m[1].trim(), who}};
+  if ((m = s.match(/^(?:i live in|i'm in|i am in|i am based in|i'm based in|my (?:location|city|hometown) is)\s+(.+?)\s*[\.!]?$/)))
+    return {tool:"set_profile", args:{key:"location", value:m[1].trim(), who}};
+  if ((m = s.match(/^my timezone is\s+(.+?)\s*[\.!]?$/)))
+    return {tool:"set_profile", args:{key:"timezone", value:m[1].trim(), who}};
+
+  // -- personality: time and date --
+  if (/^(?:what(?:'s| is) the )?(?:time|date|day)\b|^what time|^what day|^what(?:'s| is) today|^is it (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(s))
+    return {tool:"what_time_is_it", args:{who}};
+
+  // -- lists: shopping, packing, errands --
+  if ((m = s.match(/^(?:add|put)\s+(.+?)\s+(?:to|on)\s+(?:my\s+)?(.+?)\s*list\s*[\.!]?$/)))
+    return {tool:"add_to_list", args:{item:m[1].trim(), list_name:m[2].trim(), who}};
+  if ((m = s.match(/^(?:add|put)\s+(.+?)\s+(?:to|on)\s+(?:the|my)\s+list\s*[\.!]?$/)))
+    return {tool:"add_to_list", args:{item:m[1].trim(), list_name:"shopping", who}};
+  if ((m = s.match(/^(?:what(?:'s| is) on|read|show)\s+(?:my\s+)?(.+?)\s*list\s*[\?\.]?$/)))
+    return {tool:"get_list", args:{list_name:m[1].trim(), who}};
+  if ((m = s.match(/^(?:remove|cross off|check off|take off|i got the?)\s+(.+?)\s+(?:from|off)\s+(?:my\s+)?(?:the\s+)?(.+?)\s*list\s*[\.!]?$/)))
+    return {tool:"remove_from_list", args:{item:m[1].trim(), list_name:m[2].trim(), who}};
+  if ((m = s.match(/^(?:remove|cross off|check off|take off|i got the?)\s+(.+?)\s+(?:from|off)\s+(?:the|my)\s+list\s*[\.!]?$/)))
+    return {tool:"remove_from_list", args:{item:m[1].trim(), list_name:"shopping", who}};
+
+  // -- projects: tracking goals --
+  if ((m = s.match(/^track\s+(.+?)\s+as\s+(.+?)(?:\s*[-—]\s*(.+))?\s*[\.!]?$/)))
+    return {tool:"track", args:{project:m[1].trim(), status:m[2].trim(), note:m[3]?.trim()||"", who}};
+  if ((m = s.match(/^(?:update|set)\s+(.+?)\s+(?:to|as|status)\s+(.+?)\s*[\.!]?$/)))
+    return {tool:"track", args:{project:m[1].trim(), status:m[2].trim(), who}};
+  if (/^(?:what(?:'s| am| are).*(?:working on|tracking|projects|goals)|my projects|show.*projects)/.test(s))
+    return {tool:"my_projects", args:{who}};
+
+  // -- original tools (preserved) --
   if (/^(catch me up|good morning|hello|hi|wake up|anything new)/.test(s))
     return {tool:"catch_me_up", args:{full:/full|everything/.test(s), who}};
   if (/wrong about|been wrong|mistakes?/.test(s))
@@ -245,9 +283,9 @@ function route(said) {
     return {tool:"remember_for", args:{fact:m[1].trim(), until:m[2].trim(), who}};
   if ((m = s.match(/^(?:remember|note)\s+(?:that\s+)?(.+)$/)))
     return {tool:"remember", args:{fact:m[1], who}};
-  if ((m = s.match(/^(?:change|update|correct)\s+(.+?)\s+to\s+(.+)$/)))
+  if ((m = s.match(/^(?:change|correct)\s+(.+?)\s+to\s+(.+)$/)))
     return {tool:"correct", args:{about:m[1], new_fact:`${m[1]} is ${m[2]}`, who}};
-  if ((m = s.match(/^(?:forget|withdraw|remove)\s+(.+)$/)))
+  if ((m = s.match(/^(?:forget|withdraw)\s+(.+)$/)))
     return {tool:"forget", args:{about:m[1], who}};
   if ((m = s.match(/^(?:show me the history of|history of|how has|timeline of|what have I believed about)\s+(.+?)[\?]?$/)))
     return {tool:"timeline", args:{about:m[1], who}};
