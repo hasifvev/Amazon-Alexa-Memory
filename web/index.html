@@ -430,9 +430,33 @@ async function say(text) {
   ring.classList.add("listening");
   $("#send").disabled = true;
   try {
-    const {tool, args} = route(text);
-    if (hourOverride!=null && tool==="catch_me_up") args.hour = hourOverride;
-    const {text: answer, ms} = await callTool(tool, args);
+    // TRY 1: LLM routing via /api/chat (Amazon Bedrock — what real Alexa+ does)
+    let answer, ms, routedBy;
+    try {
+      const t0 = performance.now();
+      const chatRes = await fetch("/api/chat", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({text, who: currentWho || ""}),
+      });
+      const chatData = await chatRes.json();
+      if (!chatData.fallback && chatData.response) {
+        answer = chatData.response;
+        ms = chatData.ms || (performance.now() - t0);
+        routedBy = chatData.routed_by || "bedrock";
+        packet("in", `routed by ${routedBy}`, {tool: chatData.tool, args: chatData.args}, `${ms.toFixed(0)} ms`);
+      }
+    } catch(e) { /* /api/chat failed or unavailable — fall through to regex */ }
+
+    // TRY 2: Client-side regex router (fallback)
+    if (!answer) {
+      const {tool, args} = route(text);
+      if (hourOverride!=null && tool==="catch_me_up") args.hour = hourOverride;
+      const result = await callTool(tool, args);
+      answer = result.text;
+      ms = result.ms;
+    }
+
     addTurn("her", answer, ms);
   } catch(err) {
     addTurn("her", "Something went wrong: "+err.message);

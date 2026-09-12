@@ -402,6 +402,89 @@ def build_server(store_path: Path | None = None) -> FastMCP:
         tools.store = fresh
         return JSONResponse({"seeded": len(fresh)})
 
+    @mcp.custom_route("/api/chat", methods=["POST"])
+    async def chat(request):
+        """LLM-powered freeform chat endpoint.
+
+        Accepts {"text": "...", "who": "..."} and uses Amazon Bedrock to
+        figure out which MCP tool to call, then calls it and returns the
+        result.  Exactly mirrors what Alexa+ does: LLM routes → tool executes.
+        Falls back to the regex router in the web JS if Bedrock is down.
+        """
+        import time
+        from starlette.responses import JSONResponse
+
+        body = await request.json()
+        text = body.get("text", "").strip()
+        who = body.get("who", "")
+        if not text:
+            return JSONResponse({"error": "empty text"}, status_code=400)
+
+        t0 = time.perf_counter()
+
+        # Try LLM routing first
+        from server.llm_router import route_with_llm
+        route = route_with_llm(text, who)
+
+        routed_by = "bedrock"
+        if route is None:
+            routed_by = "regex"
+            # Return signal to client to use its own JS regex router
+            return JSONResponse({"fallback": True, "routed_by": "regex"})
+
+        tool_name = route["tool"]
+        tool_args = route.get("args", {})
+
+        # Dispatch to the tool
+        t = tools.for_subject(tool_args.pop("who", who) or None)
+        try:
+            tool_map = {
+                "catch_me_up": lambda a: t.catch_me_up(named=a.get("full", False)),
+                "remember": lambda a: t.remember(a.get("fact", "")),
+                "remember_for": lambda a: t.remember_for(a.get("fact", ""), a.get("until", "")),
+                "recall": lambda a: t.recall(a.get("about", ""), a.get("when")),
+                "correct": lambda a: t.correct(a.get("about", ""), a.get("new_fact", "")),
+                "forget": lambda a: t.forget(a.get("about", ""), a.get("reason", "you told me it was wrong")),
+                "what_changed": lambda a: t.what_changed(a.get("since", "14 days ago")),
+                "wrong_about": lambda a: t.wrong_about(),
+                "what_moved": lambda a: t.what_moved(),
+                "share": lambda a: t.share(a.get("fact", ""), a.get("with_who", "")),
+                "shared_with_me": lambda a: t.shared_with_me(),
+                "timeline": lambda a: t.timeline(a.get("about", "")),
+                "what_time_is_it": lambda a: t.what_time_is_it(),
+                "add_to_list": lambda a: t.add_to_list(a.get("item", ""), a.get("list_name", "shopping")),
+                "get_list": lambda a: t.get_list(a.get("list_name", "shopping")),
+                "remove_from_list": lambda a: t.remove_from_list(a.get("item", ""), a.get("list_name", "shopping")),
+                "track": lambda a: t.track(a.get("project", ""), a.get("status", ""), a.get("note", "")),
+                "my_projects": lambda a: t.my_projects(),
+                "set_profile": lambda a: t.set_profile(a.get("key", ""), a.get("value", "")),
+            }
+            fn = tool_map.get(tool_name)
+            if fn is None:
+                return JSONResponse({"error": f"unknown tool: {tool_name}"}, status_code=400)
+
+            result = fn(tool_args)
+            # Handle structured output (timeline returns a Pydantic model)
+            if hasattr(result, "model_dump"):
+                result = str(result.spoken)
+            ms = (time.perf_counter() - t0) * 1000
+            return JSONResponse({
+                "response": str(result),
+                "tool": tool_name,
+                "args": tool_args,
+                "ms": round(ms, 1),
+                "routed_by": routed_by,
+            })
+        except Exception as e:
+            ms = (time.perf_counter() - t0) * 1000
+            return JSONResponse({
+                "error": str(e),
+                "tool": tool_name,
+                "args": tool_args,
+                "ms": round(ms, 1),
+                "routed_by": routed_by,
+            }, status_code=500)
+
     return mcp
 
 
