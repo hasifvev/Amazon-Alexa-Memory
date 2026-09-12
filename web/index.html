@@ -140,11 +140,10 @@
     </div>
     <div id="proto"></div>
     <div class="proto-footer">
-      <b>Nothing here is mocked.</b> Every reply is a real <span class="k">tools/call</span>
-      to the server at <span class="k">/mcp</span>, over Streamable HTTP, spec
-      <span class="k">2025-11-25</span> &mdash; the exact transport Alexa+ requires.
-      No language model is called &mdash; every answer is assembled deterministically from
-      stored memory, which is what keeps it inside the <b>500&thinsp;ms</b> round-trip Alexa+ requires.
+      <b>Nothing here is mocked.</b> Your text is routed by <span class="k">Amazon Nova Micro</span>
+      (Bedrock) to the right MCP tool &mdash; exactly how Alexa+ works. Every answer is assembled
+      deterministically from stored memory in under <b>50&thinsp;ms</b>. If Bedrock is unavailable,
+      a smart regex router takes over seamlessly.
     </div>
   </div>
 </div>
