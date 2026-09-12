@@ -159,7 +159,16 @@ def _get_bedrock():
     if _bedrock_rt is None:
         try:
             import boto3
-            _bedrock_rt = boto3.client("bedrock-runtime", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+            from botocore.config import Config
+            # Fail fast — no retries, 3s timeout. If Bedrock is throttled,
+            # we want to fall through to the regex router in <1s, not wait 30s.
+            cfg = Config(
+                retries={"max_attempts": 1, "mode": "standard"},
+                connect_timeout=3,
+                read_timeout=5,
+                region_name=os.environ.get("AWS_REGION", "us-east-1"),
+            )
+            _bedrock_rt = boto3.client("bedrock-runtime", config=cfg)
         except Exception as e:
             log.warning("Bedrock client init failed: %s", e)
             return None
