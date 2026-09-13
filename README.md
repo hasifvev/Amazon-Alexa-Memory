@@ -152,8 +152,10 @@ def recall(about: str, when: str | None = None) -> str:
     return tools.recall(about, when)
 ```
 
-Eight tools are published: `catch_me_up`, `remember`, `recall`, `correct`,
-`forget`, `what_changed`, `wrong_about`, `timeline`.
+Seventeen tools are published: `catch_me_up`, `remember`, `remember_for`,
+`recall`, `correct`, `forget`, `what_changed`, `wrong_about`, `what_moved`,
+`share`, `shared_with_me`, `timeline`, `add_to_list`, `get_list`,
+`remove_from_list`, `track`, `my_projects`, `set_profile`, **`daily_brief`**.
 
 **Tool descriptions are the routing surface, not documentation.** Alexa+ picks
 which tool to invoke from these strings, so each one names the phrasings people
@@ -205,12 +207,15 @@ is used.
 
 ```
 Amazon-Alexa-Memory/
-├── server/app.py     MCP server, Streamable HTTP, origin validation, routes
-├── server/tools.py   the six tools, and their spoken phrasing
-├── server/demo.py    a seeded history worth asking questions about
-├── web/index.html    the simulated experience — an MCP client in the browser
-├── web/timeline.html  the MCP App — a ui:// resource rendered on Echo Show
-└── tests/            42 tests: transport conformance and spoken behaviour
+├── server/app.py          MCP server, Streamable HTTP, origin validation, all routes
+├── server/tools.py        17 tools and their spoken phrasing
+├── server/llm_router.py   Amazon Bedrock (Nova Micro → Claude Haiku) intent router
+├── server/demo.py         seeded history worth asking questions about
+├── server/telegram_bridge.py  Telegram Bot webhook bridge (Feature 6)
+├── web/index.html         simulated experience — MCP client in the browser
+├── web/dashboard.html     Memory Health Dashboard — live stats panel (Feature 4)
+├── web/timeline.html      MCP App — a ui:// resource rendered on Echo Show
+└── tests/                 42 tests: transport conformance and spoken behaviour
 ```
 
 The memory engine itself is a separate, reusable package:
@@ -245,6 +250,48 @@ The first entry is a reproducible SDK footgun: constructing
 `TransportSecuritySettings()` with its own defaults makes the server answer
 **421 to every request**, while omitting the parameter entirely behaves
 correctly. There is a regression test guarding against it here.
+
+## New in this build
+
+Six features added beyond the core bitemporal engine:
+
+| Feature | What it adds |
+|---|---|
+| 🎙️ **Voice Input** | Mic button in the web UI — click or press **Space** to speak. Uses the browser's built-in Speech Recognition API. No dependencies. |
+| ⏳ **Proactive Reminders** | `GET /api/reminders?hours=N` returns facts expiring in the next N hours. An amber strip appears in the UI when anything is about to expire. This is how a real Alexa skill would trigger unprompted notifications. |
+| 📋 **Daily Brief** | Say **"daily brief"** → Alexa composes one spoken paragraph: greeting by name, local time, open items, memories expiring today, 24-hour changes, shared messages waiting, and active projects. |
+| 📊 **Dashboard** | `/dashboard` — a live memory health panel showing per-user stats, correction rates, expiring-soon counts, and memory health score. Auto-refreshes every 30 seconds. |
+| 📥 **Export / Import** | `GET /api/export` downloads memory as JSON or Markdown. `POST /api/import` merges an exported file back in. Move memory between devices — your memory travels with you. |
+| 🤖 **Telegram Bridge** | `POST /api/webhook/telegram` accepts Telegram Bot API updates. Set `TELEGRAM_BOT_TOKEN` and point `@BotFather` at your server. Each Telegram username gets its own memory namespace, routed through the same LLM pipeline. |
+
+### New endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/reminders` | Facts expiring soon (`?hours=24`, `?who=name`) |
+| `GET` | `/api/stats` | Memory health metrics (JSON) |
+| `GET` | `/dashboard` | Memory Health Dashboard (HTML) |
+| `GET` | `/api/export` | Download memory (`?fmt=json` or `?fmt=md`, `?who=name`) |
+| `POST` | `/api/import` | Merge an exported JSON file into the store |
+| `GET` | `/api/webhook/telegram` | Webhook health check / setup status |
+| `POST` | `/api/webhook/telegram` | Receive Telegram Bot updates |
+
+### Telegram setup
+
+```bash
+# 1. Get a bot token — open Telegram, message @BotFather, send /newbot
+# 2. Set the env var
+export TELEGRAM_BOT_TOKEN=<your-token>
+
+# 3. Start the server
+python -m server.app
+
+# 4. Register your webhook with Telegram
+curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
+     -d "url=https://YOUR_SERVER/api/webhook/telegram"
+
+# 5. Text your bot — it responds using your Alexa memory
+```
 
 ## Licence
 

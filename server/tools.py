@@ -1055,3 +1055,110 @@ class MemoryTools:
             footnote=footnote,
             spoken=self.recall(about),
         )
+
+    # -- Feature 3: Smart Daily Brief ----------------------------------------
+
+    def daily_brief(self) -> str:
+        """Compose a single spoken daily briefing paragraph.
+
+        Combines: greeting by name, local time, open facts, expiring today,
+        recent changes, shared messages, and active projects — all in one
+        spoken sentence the user can hear in under 30 seconds.
+
+        This is the 'AI Chief of Staff' moment: one call that surfaces
+        everything meaningful without requiring the user to ask 6 questions.
+        """
+        from datetime import timedelta
+
+        now = _now()
+        tz_offset = self._get_tz_offset()
+        local_now = now + timedelta(hours=tz_offset)
+        hour = local_now.hour
+        day_name = local_now.strftime("%A")
+
+        name = _display_name(self.store, self.subject)
+        greeting = _time_greeting(hour)
+        opener = f"{greeting}, {name}!" if name != "there" else f"{greeting}!"
+
+        parts = [f"{opener} It's {_clock(local_now)} on {day_name}."]
+
+        # Open facts count
+        live = self.store.live(subject=self.subject)
+        open_facts = [m for m in live if "open" in m.tags]
+        if open_facts:
+            parts.append(f"You have {_plural(len(open_facts), 'open item')} still pending.")
+
+        # Expiring today
+        end_of_day = local_now.replace(hour=23, minute=59, second=59)
+        from core.store import parse_time as _pt
+        expiring_today = []
+        for m in live:
+            if m.valid_until:
+                try:
+                    exp = _pt(m.valid_until)
+                    local_exp = exp + timedelta(hours=tz_offset)
+                    if local_exp.date() == local_now.date():
+                        expiring_today.append(m.text[:40])
+                except ValueError:
+                    pass
+        if expiring_today:
+            if len(expiring_today) == 1:
+                parts.append(f"Heads up: '{expiring_today[0]}' expires today.")
+            else:
+                parts.append(
+                    f"{len(expiring_today)} memories expire today — "
+                    f"including '{expiring_today[0]}'."
+                )
+
+        # Recent changes (last 24h)
+        cutoff = now - timedelta(hours=24)
+        from core.store import parse_time as _pt2
+        recent = [
+            m for m in self.store.all()
+            if not self.store.retraction(m.id)
+            and not self.store.superseded_by(m.id)
+            and m.subject == self.subject
+            and _pt2(m.asserted_at) >= cutoff
+            and not any(t.startswith("list:") or t.startswith("profile:") for t in m.tags)
+        ]
+        if recent:
+            parts.append(
+                f"{_plural(len(recent), 'new memory')} added in the last 24 hours."
+            )
+
+        # Shared messages waiting
+        shared = [
+            m for m in live
+            if any(t.startswith("shared_by:") for t in m.tags)
+        ]
+        if shared:
+            senders = list({
+                next((t[len("shared_by:"):] for t in m.tags if t.startswith("shared_by:")), "someone")
+                for m in shared
+            })
+            parts.append(
+                f"{_plural(len(shared), 'message')} waiting from {_join(senders[:2])}."
+            )
+
+        # Active projects
+        projects = [
+            m for m in live
+            if any(t.startswith(self.PROJECT_TAG_PREFIX) for t in m.tags)
+        ]
+        if projects:
+            count = len(projects)
+            parts.append(
+                f"You're tracking {_plural(count, 'active project')}. "
+                "Say 'what am I working on' for details."
+            )
+
+        if len(parts) == 1:
+            total = len(live)
+            parts.append(
+                f"Nothing new since yesterday — I still know "
+                f"{_plural(total, 'thing')} about you."
+            )
+
+        return " ".join(parts)
+
+    # -- End Feature 3 -------------------------------------------------------

@@ -64,6 +64,13 @@
   #send { background: var(--alexa); color: #042030; border: 0; border-radius: 10px; padding: 10px 16px; font: 600 13px var(--sans); cursor: pointer; flex-shrink: 0; transition: filter .15s; }
   #send:hover { filter: brightness(1.1); }
   #send:disabled { opacity: .4; cursor: default; }
+  #micBtn { background: transparent; border: 1px solid var(--line); border-radius: 10px; padding: 10px 13px; cursor: pointer; font-size: 16px; flex-shrink: 0; transition: background .2s, border-color .2s, transform .15s; color: var(--ink-dim); line-height: 1; }
+  #micBtn:hover { border-color: var(--alexa-dim); background: var(--alexa-glow); color: var(--alexa); }
+  #micBtn.recording { border-color: var(--bad); background: rgba(255,107,107,.12); color: var(--bad); animation: mic-pulse .8s ease-in-out infinite; }
+  #micBtn:disabled { opacity: .3; cursor: default; }
+  @keyframes mic-pulse { 0%,100%{ transform: scale(1); } 50%{ transform: scale(1.15); } }
+  .mic-hint { font: 10px var(--mono); color: var(--ink-faint); padding: 0 20px 6px; flex-shrink: 0; letter-spacing: .05em; }
+  .voice-status { font: 11px var(--sans); color: var(--alexa); padding: 0 20px 4px; flex-shrink: 0; min-height: 16px; transition: opacity .3s; }
   .time-bar { display: flex; gap: 5px; align-items: center; padding: 0 20px 12px; flex-shrink: 0; }
   .time-label { font: 10px var(--mono); color: var(--ink-faint); letter-spacing: .08em; text-transform: uppercase; }
   .t-btn { font: 12px var(--sans); color: var(--ink-faint); border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 4px 10px; cursor: pointer; transition: .15s; }
@@ -86,6 +93,12 @@
   .proto-footer { padding: 12px 16px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--ink-faint); background: var(--panel-2); flex-shrink: 0; }
   .proto-footer b { color: var(--ink); }
   .proto-footer .k { font-family: var(--mono); color: var(--alexa); font-size: 11px; }
+  .expiring-strip { display: none; gap: 6px; align-items: center; padding: 6px 20px; background: rgba(255,180,84,.07); border-top: 1px solid rgba(255,180,84,.25); flex-shrink: 0; flex-wrap: wrap; }
+  .expiring-strip.visible { display: flex; }
+  .expiring-label { font: 700 10px var(--mono); color: var(--warn); letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
+  .expiring-item { font: 11px var(--sans); color: var(--ink-dim); background: rgba(255,180,84,.08); border: 1px solid rgba(255,180,84,.2); border-radius: 999px; padding: 2px 10px; white-space: nowrap; cursor: pointer; transition: .15s; }
+  .expiring-item:hover { background: rgba(255,180,84,.15); color: var(--warn); }
+  .expiring-item .hrs { color: var(--warn); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -118,17 +131,27 @@
       <div class="chips-label">Try saying</div>
       <div class="chips" id="chips"></div>
     </div>
+    <div class="voice-status" id="voiceStatus"></div>
     <div class="input-bar">
       <input type="text" id="say" placeholder="Say something to Alexa&hellip;" autocomplete="off">
+      <button id="micBtn" title="Hold Space or click to speak" aria-label="Start voice input">🎙️</button>
       <button id="send">Ask &rsaquo;</button>
     </div>
+    <div class="mic-hint" id="micHint"></div>
     <div class="time-bar">
       <span class="time-label">Pretend it&rsquo;s</span>
       <button class="t-btn" data-hour="7">Morning</button>
       <button class="t-btn" data-hour="14">Afternoon</button>
       <button class="t-btn" data-hour="20">Evening</button>
       <button class="t-btn" data-hour="23">Night</button>
-      <button id="resetBtn">&#8635; Reset memory</button>
+      <button id="resetBtn">&#8635; Reset</button>
+      <a href="/dashboard" target="_blank" id="dashBtn" style="font:12px var(--sans);color:var(--ink-faint);border:1px solid var(--line);border-radius:999px;padding:4px 12px;text-decoration:none;transition:.15s;" onmouseover="this.style.color='var(--alexa)';this.style.borderColor='var(--alexa-dim)'" onmouseout="this.style.color='var(--ink-faint)';this.style.borderColor='var(--line)'">📊 Dashboard</a>
+      <button id="exportBtn" style="font:12px var(--sans);color:var(--ink-faint);border:1px solid var(--line);background:transparent;border-radius:999px;padding:4px 12px;cursor:pointer;transition:.15s;" onmouseover="this.style.color='var(--good)';this.style.borderColor='var(--good)'" onmouseout="this.style.color='var(--ink-faint)';this.style.borderColor='var(--line)'">📥 Export</button>
+      <label id="importLabel" style="font:12px var(--sans);color:var(--ink-faint);border:1px solid var(--line);border-radius:999px;padding:4px 12px;cursor:pointer;transition:.15s;" onmouseover="this.style.color='var(--warn)';this.style.borderColor='var(--warn)'" onmouseout="this.style.color='var(--ink-faint)';this.style.borderColor='var(--line)'">📤 Import<input type="file" id="importFile" accept=".json" style="display:none"></label>
+    </div>
+    <div class="expiring-strip" id="expiringStrip">
+      <span class="expiring-label">⏳ Expiring soon</span>
+      <span id="expiringItems"></span>
     </div>
   </div>
   <div class="proto-panel">
@@ -154,6 +177,7 @@ let sessionId = null, msgId = 0, hourOverride = null, currentWho = "";
 
 const SUGGESTIONS = [
   { text: "catch me up",                          tag: null },
+  { text: "daily brief",                          tag: "new" },
   { text: "what time is it?",                     tag: null },
   { text: "what has changed lately?",             tag: null },
   { text: "what have I been wrong about?",        tag: null },
@@ -300,6 +324,10 @@ function route(said) {
   // -- GREETING / CATCH ME UP --
   if (/^(?:catch me up|good (?:morning|afternoon|evening|night)|hello|hey|hi|wake up|anything new|what(?:'s| is) (?:new|up|happening|going on)|brief me|briefing|start|morning|whats new|status update|bring me up to (?:speed|date))/.test(s))
     return {tool:"catch_me_up", args:{full:/full|everything|detail/.test(s), who}};
+
+  // -- DAILY BRIEF --
+  if (/^(?:daily brief|give me (?:my |the )?brief|morning summary|full picture|summaris[e|ing] my day|full (?:brief|briefing)|what(?:'s| is) (?:my )?(?:daily )?(?:brief|summary)|brief me fully)/.test(s))
+    return {tool:"daily_brief", args:{who}};
 
   // -- WRONG ABOUT --
   if (/wrong about|been wrong|mistakes?|incorrect|what.*(?:retracted|withdrawn|wrong)/.test(s))
@@ -499,12 +527,148 @@ document.querySelectorAll(".t-btn").forEach(btn => {
 
 $("#send").onclick = () => say($("#say").value);
 $("#say").addEventListener("keydown", e => { if (e.key==="Enter") say($("#say").value); });
+
+// ── Feature 1: Voice Input (Web Speech API) ────────────────────────────────
+(function initVoice() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const micBtn = $("#micBtn");
+  const voiceStatus = $("#voiceStatus");
+  const micHint = $("#micHint");
+
+  if (!SpeechRecognition) {
+    micBtn.disabled = true;
+    micBtn.title = "Voice input not supported in this browser (use Chrome)";
+    micHint.textContent = "Voice not supported — try Chrome";
+    return;
+  }
+
+  micHint.textContent = "Space bar to toggle mic · works best in Chrome";
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = "en-US";
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  recognition.maxAlternatives = 1;
+
+  let isRecording = false;
+  let interimText = "";
+
+  function startRecording() {
+    if (isRecording) return;
+    isRecording = true;
+    interimText = "";
+    micBtn.classList.add("recording");
+    ring.classList.add("listening");
+    voiceStatus.textContent = "Listening…";
+    $("#say").placeholder = "Speak now…";
+    try { recognition.start(); } catch(e) { stopRecording(); }
+  }
+
+  function stopRecording() {
+    if (!isRecording) return;
+    isRecording = false;
+    micBtn.classList.remove("recording");
+    ring.classList.remove("listening");
+    voiceStatus.textContent = "";
+    $("#say").placeholder = "Say something to Alexa…";
+    try { recognition.stop(); } catch(e) {}
+  }
+
+  recognition.onresult = (e) => {
+    let interim = "", final = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      e.results[i].isFinal ? (final += t) : (interim += t);
+    }
+    if (interim) { $("#say").value = interim; voiceStatus.textContent = `Hearing: “${interim}”`; }
+    if (final) {
+      $("#say").value = final;
+      voiceStatus.textContent = `Got: “${final}”`;
+      stopRecording();
+      setTimeout(() => say(final), 80);
+    }
+  };
+
+  recognition.onerror = (e) => {
+    voiceStatus.textContent = e.error === "no-speech" ? "No speech detected — try again" : `Error: ${e.error}`;
+    stopRecording();
+    setTimeout(() => { voiceStatus.textContent = ""; }, 2000);
+  };
+
+  recognition.onend = () => stopRecording();
+
+  micBtn.onclick = () => isRecording ? stopRecording() : startRecording();
+
+  // Space bar shortcut (only when input is not focused)
+  document.addEventListener("keydown", (e) => {
+    if (e.key === " " && document.activeElement !== $("#say") && !e.repeat) {
+      e.preventDefault();
+      isRecording ? stopRecording() : startRecording();
+    }
+  });
+})();
+// ── End Voice Input ────────────────────────────────────────────────────────
 $("#resetBtn").onclick = async () => {
   await fetch("/api/seed", {method:"POST"});
   conv.innerHTML = ""; proto.innerHTML = "";
   sessionId = null; msgId = 0;
   await connect(); await say("catch me up");
 };
+
+// ── Feature 2: Proactive Reminders polling ──────────────────────────────────
+async function pollReminders() {
+  try {
+    const r = await fetch("/api/reminders?hours=24");
+    if (!r.ok) return;
+    const data = await r.json();
+    const strip = $("#expiringStrip");
+    const items = $("#expiringItems");
+    if (!data.reminders || data.reminders.length === 0) {
+      strip.classList.remove("visible");
+      return;
+    }
+    strip.classList.add("visible");
+    items.innerHTML = data.reminders.map(rem => {
+      const hrs = rem.hours_left < 1
+        ? "<1h" : rem.hours_left < 2
+        ? "~1h" : `${rem.hours_left}h`;
+      const short = rem.text.length > 40 ? rem.text.slice(0, 37) + "…" : rem.text;
+      return `<span class="expiring-item" onclick="say('what is ${short.split(' ').slice(0,3).join(' ')}')" title="${rem.text}">
+        ${short} <span class="hrs">(${hrs})</span>
+      </span>`;
+    }).join("");
+  } catch(e) { /* server unavailable — silent */ }
+}
+pollReminders();
+setInterval(pollReminders, 60_000);
+// ── End Reminders polling ───────────────────────────────────────────────────
+
+// ── Feature 5: Memory Export / Import ──────────────────────────────────────
+document.getElementById("exportBtn").onclick = () => {
+  window.open("/api/export?fmt=json", "_blank");
+};
+document.getElementById("importFile").onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const r = await fetch("/api/import", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const result = await r.json();
+    addTurn("her",
+      `Memory imported! ${result.imported} new memories added, ${result.skipped} already existed.`
+        + (result.errors.length ? ` (${result.errors.length} errors)` : "")
+    );
+  } catch(err) {
+    addTurn("her", "Import failed: " + err.message);
+  }
+  e.target.value = "";
+};
+// ── End Export / Import ─────────────────────────────────────────────────────
 
 (async () => { await connect(); await say("catch me up"); })();
 </script>

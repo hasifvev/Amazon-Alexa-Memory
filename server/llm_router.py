@@ -115,6 +115,11 @@ TOOLS = [
         "desc": "Show the history of a specific fact over time. Triggers: 'history of X', 'timeline of X', 'how has X changed', 'what have I believed about X'.",
         "args": {"about": "the topic to show history for"},
     },
+    {
+        "name": "daily_brief",
+        "desc": "Give a full spoken daily briefing: name, time, open items, expiring today, recent changes, shared messages, projects. Triggers: 'daily brief', 'give me my brief', 'morning summary', 'full picture', 'summarise my day'.",
+        "args": {},
+    },
 ]
 
 

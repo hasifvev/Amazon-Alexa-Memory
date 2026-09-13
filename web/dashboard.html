@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Dashboard — Alexa+ Memory Health</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0d12; --panel: #111620; --panel-2: #0d1018;
+    --line: #1c2535; --ink: #e8edf6; --ink-dim: #8a9bb5; --ink-faint: #4e5f75;
+    --alexa: #00c8ff; --alexa-dim: #0080aa; --alexa-glow: rgba(0,200,255,.1);
+    --warn: #ffb454; --bad: #ff6b6b; --good: #4fcf89; --purple: #a78bfa;
+    --mono: ui-monospace,"SF Mono","Cascadia Code",Consolas,monospace;
+    --sans: "Inter",ui-sans-serif,system-ui,sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 14px/1.6 var(--sans); -webkit-font-smoothing: antialiased; min-height: 100vh; padding: 24px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+  .logo { width: 36px; height: 36px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #7fefff, #00c8ff 60%, #0060a0); box-shadow: 0 0 18px 4px rgba(0,200,255,.4); }
+  header h1 { font: 700 20px var(--sans); }
+  header .sub { font: 13px var(--sans); color: var(--ink-faint); }
+  .back { margin-left: auto; font: 12px var(--sans); color: var(--ink-dim); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; text-decoration: none; transition: .15s; }
+  .back:hover { border-color: var(--alexa-dim); color: var(--alexa); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+  .card .label { font: 700 10px var(--mono); color: var(--ink-faint); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 6px; }
+  .card .value { font: 700 32px var(--sans); line-height: 1; }
+  .card .value.alexa { color: var(--alexa); }
+  .card .value.good  { color: var(--good); }
+  .card .value.warn  { color: var(--warn); }
+  .card .value.bad   { color: var(--bad); }
+  .card .value.purple { color: var(--purple); }
+  .card .sub-stat { font: 11px var(--sans); color: var(--ink-faint); margin-top: 4px; }
+  .section-title { font: 700 11px var(--mono); color: var(--ink-faint); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 12px; }
+  .subjects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .subject-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .subject-name { font: 700 14px var(--sans); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .subject-avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, var(--alexa-dim), var(--purple)); display: flex; align-items: center; justify-content: center; font: 700 12px var(--sans); color: #fff; flex-shrink: 0; }
+  .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .stat-row:last-child { border-bottom: 0; }
+  .stat-row .sk { color: var(--ink-dim); }
+  .stat-row .sv { font-weight: 600; }
+  .stat-row .sv.warn { color: var(--warn); }
+  .stat-row .sv.good { color: var(--good); }
+  .bar-wrap { margin-top: 8px; }
+  .bar-label { display: flex; justify-content: space-between; font: 10px var(--mono); color: var(--ink-faint); margin-bottom: 3px; }
+  .bar-track { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 2px; transition: width .8s ease; }
+  .bar-fill.alexa { background: var(--alexa); }
+  .bar-fill.good  { background: var(--good); }
+  .bar-fill.warn  { background: var(--warn); }
+  .bar-fill.bad   { background: var(--bad); }
+  .refresh-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  #refreshBtn { font: 12px var(--sans); color: var(--ink-dim); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; background: transparent; cursor: pointer; transition: .15s; }
+  #refreshBtn:hover { border-color: var(--alexa-dim); color: var(--alexa); }
+  .last-updated { font: 11px var(--mono); color: var(--ink-faint); }
+  .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); animation: blink 1.4s ease-in-out infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+  .empty-state { text-align: center; padding: 48px; color: var(--ink-faint); }
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+  .error-msg { background: rgba(255,107,107,.08); border: 1px solid rgba(255,107,107,.2); border-radius: 10px; padding: 14px 18px; color: var(--bad); font: 13px var(--sans); margin-bottom: 16px; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"></div>
+  <div>
+    <h1>Memory Dashboard</h1>
+    <div class="sub">Alexa+ Memory Health · Real-time</div>
+  </div>
+  <a href="/" class="back">← Back to Alexa</a>
+</header>
+
+<div class="error-msg" id="errorMsg"></div>
+
+<div class="refresh-bar">
+  <div class="live-dot"></div>
+  <span class="last-updated" id="lastUpdated">Loading…</span>
+  <button id="refreshBtn">⟳ Refresh</button>
+</div>
+
+<div class="grid" id="globalCards">
+  <!-- Global stat cards injected here -->
+</div>
+
+<div class="section-title" id="subjectsTitle" style="display:none">Household Members</div>
+<div class="subjects-grid" id="subjectsGrid"></div>
+
+<script>
+async function loadStats() {
+  const errorMsg = document.getElementById("errorMsg");
+  errorMsg.style.display = "none";
+  try {
+    const r = await fetch("/api/stats");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    render(data);
+    document.getElementById("lastUpdated").textContent =
+      "Updated " + new Date().toLocaleTimeString();
+  } catch(e) {
+    errorMsg.style.display = "block";
+    errorMsg.textContent = `Failed to load stats: ${e.message}. Is the server running?`;
+    document.getElementById("lastUpdated").textContent = "Failed to load";
+  }
+}
+
+function pct(a, b) {
+  return b === 0 ? 0 : Math.round((a / b) * 100);
+}
+
+function card(label, value, cls, sub) {
+  return `<div class="card">
+    <div class="label">${label}</div>
+    <div class="value ${cls}">${value}</div>
+    ${sub ? `<div class="sub-stat">${sub}</div>` : ""}
+  </div>`;
+}
+
+function render(data) {
+  const g = data.global;
+  const subjects = data.subjects || [];
+
+  // Global cards
+  const totalLive = subjects.reduce((a, s) => a + s.live, 0);
+  const totalExpiring = subjects.reduce((a, s) => a + s.expiring_24h, 0);
+  const totalProjects = subjects.reduce((a, s) => a + s.projects, 0);
+  const healthPct = g.asserted > 0
+    ? pct(g.true_now, g.asserted) : 100;
+
+  document.getElementById("globalCards").innerHTML = [
+    card("Live Memories", g.true_now, "alexa",
+      `${g.asserted} total asserted`),
+    card("Corrections Made", g.superseded, "purple",
+      "times a fact was updated"),
+    card("Withdrawn", g.retracted, g.retracted > 0 ? "warn" : "good",
+      "facts retracted as wrong"),
+    card("Expiring in 24h", totalExpiring, totalExpiring > 0 ? "warn" : "good",
+      totalExpiring > 0 ? "tap to see which" : "nothing urgent"),
+    card("Active Projects", totalProjects, "alexa",
+      `across ${subjects.length} household member${subjects.length !== 1 ? "s" : ""}`),
+    card("Memory Health", healthPct + "%", healthPct >= 80 ? "good" : "warn",
+      `${g.true_now} of ${g.asserted} facts are live`),
+  ].join("");
+
+  // Per-subject cards
+  const grid = document.getElementById("subjectsGrid");
+  const title = document.getElementById("subjectsTitle");
+  if (subjects.length === 0) {
+    grid.innerHTML = `<div class="empty-state"><div class="icon">🧠</div><p>No memories yet.<br>Say something to Alexa to get started.</p></div>`;
+    title.style.display = "block";
+    return;
+  }
+  title.style.display = "block";
+  grid.innerHTML = subjects.map(s => {
+    const initial = (s.subject === "default" ? "?" : s.subject[0]).toUpperCase();
+    const displayName = s.subject === "default" ? "Default User" : s.subject[0].toUpperCase() + s.subject.slice(1);
+    const livePct = pct(s.live, s.total);
+    const corrPct = pct(s.corrections, s.total);
+    return `<div class="subject-card">
+      <div class="subject-name">
+        <div class="subject-avatar">${initial}</div>
+        ${displayName}
+        ${s.expiring_24h > 0 ? `<span style="font:10px var(--mono);color:var(--warn);margin-left:auto">⏳ ${s.expiring_24h} expiring</span>` : ""}
+      </div>
+      <div class="stat-row"><span class="sk">Live memories</span><span class="sv good">${s.live}</span></div>
+      <div class="stat-row"><span class="sk">Corrections</span><span class="sv">${s.corrections}</span></div>
+      <div class="stat-row"><span class="sk">Retracted</span><span class="sv ${s.retracted > 0 ? "warn" : ""}">${s.retracted}</span></div>
+      <div class="stat-row"><span class="sk">List items</span><span class="sv">${s.lists}</span></div>
+      <div class="stat-row"><span class="sk">Projects</span><span class="sv">${s.projects}</span></div>
+      <div class="bar-wrap">
+        <div class="bar-label"><span>Live</span><span>${livePct}%</span></div>
+        <div class="bar-track"><div class="bar-fill alexa" style="width:${livePct}%"></div></div>
+      </div>
+      ${s.corrections > 0 ? `<div class="bar-wrap">
+        <div class="bar-label"><span>Corrected</span><span>${corrPct}%</span></div>
+        <div class="bar-track"><div class="bar-fill purple" style="width:${corrPct}%"></div></div>
+      </div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+document.getElementById("refreshBtn").onclick = loadStats;
+loadStats();
+setInterval(loadStats, 30_000);
+</script>
+</body>
+</html>

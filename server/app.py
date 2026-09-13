@@ -359,6 +359,19 @@ def build_server(store_path: Path | None = None) -> FastMCP:
 
     @mcp.tool(
         description=(
+            "Use when the customer wants a full daily briefing: 'daily brief', "
+            "'give me my brief', 'what's my morning summary', 'brief me', "
+            "'give me the full picture', 'summarise my day'. "
+            "Returns a single spoken paragraph: greeting by name, local time, "
+            "open items, memories expiring today, recent changes, shared messages, "
+            "and active projects — everything in one voice-ready sentence."
+        )
+    )
+    def daily_brief(who: str | None = None) -> str:
+        return tools.for_subject(who).daily_brief()
+
+    @mcp.tool(
+        description=(
             "Use when the customer wants to see all their tracked projects: "
             "'what am I working on', 'show my projects', 'what goals am I tracking'. "
             "Lists current project names and their latest status."
@@ -401,6 +414,281 @@ def build_server(store_path: Path | None = None) -> FastMCP:
         fresh = reset(store.path)
         tools.store = fresh
         return JSONResponse({"seeded": len(fresh)})
+
+    # -- Feature 2: Proactive Reminders ----------------------------------------
+    @mcp.custom_route("/api/reminders", methods=["GET"])
+    async def get_reminders(request):
+        """Return facts expiring within the next N hours (default 24).
+
+        GET /api/reminders          → next 24 hours
+        GET /api/reminders?hours=48 → next 48 hours
+        GET /api/reminders?who=hasif → filter to one subject
+
+        This is the endpoint a real Alexa skill would poll to trigger
+        proactive notifications before a memory expires.
+        """
+        from datetime import timedelta
+        from starlette.responses import JSONResponse
+        from core.store import parse_time
+        import datetime as dt
+
+        hours_param = request.query_params.get("hours", "24")
+        who_param = request.query_params.get("who", None)
+        try:
+            window_hours = float(hours_param)
+        except ValueError:
+            return JSONResponse({"error": "hours must be a number"}, status_code=400)
+
+        now = dt.datetime.now(dt.timezone.utc)
+        cutoff = now + timedelta(hours=window_hours)
+
+        expiring = []
+        for mem in store.all():
+            # skip retracted
+            if store.retraction(mem.id):
+                continue
+            # skip superseded
+            if store.superseded_by(mem.id):
+                continue
+            # filter by subject if requested
+            if who_param and mem.subject != who_param:
+                continue
+            # only memories with an explicit valid_until
+            if not mem.valid_until:
+                continue
+            try:
+                expires_at = parse_time(mem.valid_until)
+            except ValueError:
+                continue
+            if now <= expires_at <= cutoff:
+                expiring.append({
+                    "id": mem.id,
+                    "text": mem.text,
+                    "subject": mem.subject,
+                    "expires_at": mem.valid_until,
+                    "hours_left": round((expires_at - now).total_seconds() / 3600, 1),
+                })
+
+        expiring.sort(key=lambda x: x["expires_at"])
+        return JSONResponse({
+            "window_hours": window_hours,
+            "count": len(expiring),
+            "reminders": expiring,
+        })
+    # -- End Feature 2 ---------------------------------------------------------
+
+    # -- Feature 4: Memory Health Dashboard ------------------------------------
+    @mcp.custom_route("/api/stats", methods=["GET"])
+    async def get_stats(_request):
+        """Return rich memory health metrics for the dashboard.
+
+        GET /api/stats -> JSON with per-subject counts and store-wide metrics.
+        """
+        from starlette.responses import JSONResponse
+        import datetime as dt
+        from core.store import parse_time
+
+        now = dt.datetime.now(dt.timezone.utc)
+
+        all_mems = list(store.all())
+        subjects: dict[str, dict] = {}
+
+        for mem in all_mems:
+            s = mem.subject
+            if s not in subjects:
+                subjects[s] = {
+                    "subject": s,
+                    "total": 0,
+                    "live": 0,
+                    "retracted": 0,
+                    "expiring_24h": 0,
+                    "lists": 0,
+                    "projects": 0,
+                    "corrections": 0,
+                }
+            subjects[s]["total"] += 1
+            if store.retraction(mem.id):
+                subjects[s]["retracted"] += 1
+                continue
+            if store.superseded_by(mem.id):
+                subjects[s]["corrections"] += 1
+                continue
+            subjects[s]["live"] += 1
+            if any(t.startswith("list:") for t in mem.tags):
+                subjects[s]["lists"] += 1
+            if any(t.startswith("project:") for t in mem.tags):
+                subjects[s]["projects"] += 1
+            if mem.valid_until:
+                try:
+                    exp = parse_time(mem.valid_until)
+                    if now <= exp <= now + dt.timedelta(hours=24):
+                        subjects[s]["expiring_24h"] += 1
+                except ValueError:
+                    pass
+
+        global_stats = store.stats()
+        return JSONResponse({
+            "generated_at": now.isoformat(),
+            "store_path": str(store.path),
+            "global": global_stats,
+            "subjects": list(subjects.values()),
+        })
+
+    @mcp.custom_route("/dashboard", methods=["GET"])
+    async def dashboard(_request):
+        from starlette.responses import FileResponse
+        dashboard_path = WEB_DIR / "dashboard.html"
+        if dashboard_path.exists():
+            return FileResponse(dashboard_path)
+        from starlette.responses import Response
+        return Response("Dashboard not found. Make sure web/dashboard.html exists.", status_code=404)
+    # -- End Feature 4 ---------------------------------------------------------
+
+    # -- Feature 5: Memory Export / Import ------------------------------------
+    @mcp.custom_route("/api/export", methods=["GET"])
+    async def export_memory(request):
+        """Download the memory store as JSON or human-readable markdown.
+
+        GET /api/export           -> JSON (default)
+        GET /api/export?fmt=md    -> Markdown (readable)
+        GET /api/export?who=hasif -> filter to one subject
+        """
+        from starlette.responses import Response
+        import datetime as dt
+
+        fmt = request.query_params.get("fmt", "json")
+        who = request.query_params.get("who", None)
+        now_str = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+        live_mems = store.live(subject=who)
+
+        if fmt == "md":
+            lines = [
+                "# Alexa Memory Export",
+                f"_Exported: {dt.datetime.now().isoformat()}_",
+                "",
+            ]
+            by_subject: dict[str, list] = {}
+            for m in live_mems:
+                by_subject.setdefault(m.subject, []).append(m)
+
+            for subj, mems in by_subject.items():
+                lines.append(f"## {subj.title()}")
+                for m in mems:
+                    expiry = f" _(expires {m.valid_until})_" if m.valid_until else ""
+                    tags = f" `{', '.join(m.tags)}`" if m.tags else ""
+                    lines.append(f"- {m.text}{expiry}{tags}")
+                lines.append("")
+
+            content = "\n".join(lines)
+            return Response(
+                content,
+                media_type="text/markdown",
+                headers={"Content-Disposition": f"attachment; filename=memory-{now_str}.md"},
+            )
+        else:
+            import json
+            payload = {
+                "exported_at": dt.datetime.now().isoformat(),
+                "version": 1,
+                "memories": [m.to_dict() for m in live_mems],
+            }
+            return Response(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                media_type="application/json",
+                headers={"Content-Disposition": f"attachment; filename=memory-{now_str}.json"},
+            )
+
+    @mcp.custom_route("/api/import", methods=["POST"])
+    async def import_memory(request):
+        """Merge an exported memory JSON file into the current store.
+
+        POST /api/import with a JSON body matching the export format.
+        Existing memories are not overwritten — this is a merge, not a replace.
+        Returns counts of imported vs. skipped (already exists).
+        """
+        import json
+        from starlette.responses import JSONResponse
+        from core.store import Memory
+
+        body = await request.body()
+        try:
+            payload = json.loads(body)
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+        memories = payload.get("memories", [])
+        imported = 0
+        skipped = 0
+        errors = []
+
+        for mem_dict in memories:
+            try:
+                mem = Memory.from_dict(mem_dict)
+                if store.get(mem.id) is not None:
+                    skipped += 1
+                    continue
+                store.add(mem)
+                imported += 1
+            except Exception as e:
+                errors.append(str(e))
+                skipped += 1
+
+        return JSONResponse({
+            "imported": imported,
+            "skipped": skipped,
+            "errors": errors[:5],
+            "total": len(memories),
+        })
+    # -- End Feature 5 ---------------------------------------------------------
+
+    # -- Feature 6: Telegram Bridge --------------------------------------------
+    @mcp.custom_route("/api/webhook/telegram", methods=["GET"])
+    async def telegram_verify(_request):
+        """Telegram webhook verification endpoint.
+
+        Telegram sends a GET to confirm the webhook URL is reachable.
+        Returns a simple 200 OK with instructions if no token is set.
+        """
+        from starlette.responses import JSONResponse
+        from server.telegram_bridge import get_bot_token
+
+        token = get_bot_token()
+        if not token:
+            return JSONResponse({
+                "status": "not_configured",
+                "message": (
+                    "Set TELEGRAM_BOT_TOKEN env var to activate the bridge. "
+                    "Get a token from @BotFather on Telegram (takes 2 minutes)."
+                ),
+            })
+        return JSONResponse({"status": "ok", "webhook": "active"})
+
+    @mcp.custom_route("/api/webhook/telegram", methods=["POST"])
+    async def telegram_webhook(request):
+        """Handle incoming Telegram updates.
+
+        Telegram POSTs a JSON update object here for every message the bot
+        receives. The bridge routes it through the same LLM + tool pipeline
+        as the web UI, then sends the reply back via the Bot API.
+        """
+        from starlette.responses import JSONResponse
+        from server.telegram_bridge import get_bot_token, handle_telegram_update
+
+        token = get_bot_token()
+        if not token:
+            return JSONResponse({"error": "TELEGRAM_BOT_TOKEN not set"}, status_code=503)
+
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+        # tools_factory gives the bridge the same subject-scoped tools the
+        # web UI uses — one memory namespace per Telegram username.
+        reply = await handle_telegram_update(body, tools_factory=tools.for_subject)
+        return JSONResponse({"ok": True, "reply": reply})
+    # -- End Feature 6 ---------------------------------------------------------
 
     @mcp.custom_route("/api/chat", methods=["POST"])
     async def chat(request):
@@ -458,6 +746,7 @@ def build_server(store_path: Path | None = None) -> FastMCP:
                 "track": lambda a: t.track(a.get("project", ""), a.get("status", ""), a.get("note", "")),
                 "my_projects": lambda a: t.my_projects(),
                 "set_profile": lambda a: t.set_profile(a.get("key", ""), a.get("value", "")),
+                "daily_brief": lambda a: t.daily_brief(),
             }
             fn = tool_map.get(tool_name)
             if fn is None:
