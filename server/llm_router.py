@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import threading
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -175,7 +176,7 @@ def _get_bedrock():
             )
             _bedrock_rt = boto3.client("bedrock-runtime", config=cfg)
         except Exception as e:
-            log.warning("Bedrock client init failed: %s", e)
+            log.warning("Bedrock client unavailable")
             return None
     return _bedrock_rt
 
@@ -198,7 +199,7 @@ def _invoke_nova(client, user_text: str) -> dict | None:
         text = raw.get("output", {}).get("message", {}).get("content", [{}])[0].get("text", "")
         return _parse_json(text)
     except Exception as e:
-        log.warning("Nova Micro failed: %s", e)
+        log.warning("Nova routing unavailable")
         return None
 
 
@@ -221,7 +222,7 @@ def _invoke_haiku(client, user_text: str) -> dict | None:
         text = raw.get("content", [{}])[0].get("text", "")
         return _parse_json(text)
     except Exception as e:
-        log.warning("Claude Haiku failed: %s", e)
+        log.warning("Fallback routing unavailable")
         return None
 
 
@@ -233,7 +234,7 @@ def _parse_json(text: str) -> dict | None:
     text = text.strip()
     try:
         obj = json.loads(text)
-        if "tool" in obj:
+        if isinstance(obj, dict) and isinstance(obj.get("tool"), str) and isinstance(obj.get("args"), dict):
             return obj
     except json.JSONDecodeError:
         m = re.search(r"\{[^{}]+\}", text)
@@ -250,6 +251,8 @@ def _parse_json(text: str) -> dict | None:
 # ---------------------------------------------------------------------------
 def route_with_llm(user_text: str, who: str = "") -> dict | None:
     """Route user text to a tool using Bedrock LLM. Returns {"tool":..., "args":...} or None."""
+    if os.environ.get('MEMORY_BEDROCK') != '1':
+        return None
     client = _get_bedrock()
     if client is None:
         return None
@@ -257,18 +260,62 @@ def route_with_llm(user_text: str, who: str = "") -> dict | None:
     # Try Nova Micro first (Amazon's model - best for hackathon optics)
     result = _invoke_nova(client, user_text)
     if result:
-        if who and "who" not in result.get("args", {}):
-            result["args"]["who"] = who
-        log.info("LLM routed '%s' -> %s (Nova Micro)", user_text, result["tool"])
+        if not isinstance(result.get('args'),dict): return None
+        result['args']['who'] = who or 'default'
         return result
 
     # Fallback to Claude Haiku
     result = _invoke_haiku(client, user_text)
     if result:
-        if who and "who" not in result.get("args", {}):
-            result["args"]["who"] = who
-        log.info("LLM routed '%s' -> %s (Claude Haiku)", user_text, result["tool"])
+        if not isinstance(result.get('args'),dict): return None
+        result['args']['who'] = who or 'default'
         return result
 
-    log.warning("LLM routing failed for '%s', falling back to regex", user_text)
+    log.warning("Routing unavailable; using offline fallback")
     return None
+
+
+_inference_slots = threading.BoundedSemaphore(2)
+
+
+async def route_async(value, who):
+    """Threaded opt-in inference. Capacity held until the real call completes."""
+    if os.environ.get('MEMORY_BEDROCK') != '1': return None
+    import anyio
+    def run():
+        if not _inference_slots.acquire(blocking=False): return None
+        try:
+            return route_with_llm(value, who)
+        except Exception:
+            log.warning('Routing unavailable')
+            return None
+        finally:
+            _inference_slots.release()
+    return await anyio.to_thread.run_sync(run)
+
+
+def is_read_request(value):
+    """High-confidence questions cannot authorize a model-selected fact write."""
+    normalized = value.strip()
+    for _ in range(3):
+        normalized = re.sub(r'^(?:(?:can|could|would|will) you\s+|please\s+)', '', normalized, flags=re.I)
+    return bool(re.match(r"^(?:what\b|what's\b|who\b|where\b|when\b|how\b|why\b|which\b|do you (?:know|remember)\b|tell me\b|show\b|read\b|recall\b|catch me up\b|daily brief\b|brief me\b)", normalized, re.I))
+
+
+def validate_route(result, who, registered, *, user_text=None):
+    """Validate model output against the actual advertised MCP input schema."""
+    if not isinstance(result,dict) or not isinstance(result.get('tool'),str) or result.get('tool') not in registered or not isinstance(result.get('args'),dict): return None
+    writes = {'remember','remember_for','correct','forget','share','add_to_list','remove_from_list','track','set_profile'}
+    if user_text is not None and is_read_request(user_text) and result['tool'] in writes:
+        return None
+    from jsonschema import Draft202012Validator
+    from server.safety import subject
+    args = dict(result['args'])
+    args['who'] = subject(who)
+    schema = registered[result['tool']].inputSchema
+    if set(args) - set(schema.get('properties',{})): return None
+    if not Draft202012Validator(schema).is_valid(args): return None
+    for key, value in args.items():
+        if isinstance(value,str) and (len(value)>2000 or (key not in ('note',) and not value.strip())): return None
+        if key == 'tags' and value is not None and (len(value)>32 or any(not isinstance(t,str) or not t.strip() or len(t)>128 for t in value)): return None
+    return {'tool':result['tool'],'args':args}

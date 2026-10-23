@@ -4,8 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Memory Dashboard — Alexa+ Memory Health</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
 <style>
   :root {
     --bg: #0a0d12; --panel: #111620; --panel-2: #0d1018;
@@ -93,7 +92,8 @@ async function loadStats() {
   const errorMsg = document.getElementById("errorMsg");
   errorMsg.style.display = "none";
   try {
-    const r = await fetch("/api/stats");
+    const who = new URLSearchParams(location.search).get("who") || "default";
+    const r = await fetch(`/api/stats?who=${encodeURIComponent(who)}`);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     render(data);
@@ -112,15 +112,18 @@ function pct(a, b) {
 
 function card(label, value, cls, sub) {
   return `<div class="card">
-    <div class="label">${label}</div>
-    <div class="value ${cls}">${value}</div>
-    ${sub ? `<div class="sub-stat">${sub}</div>` : ""}
+    <div class="label">${esc(label)}</div>
+    <div class="value ${esc(cls)}">${esc(value)}</div>
+    ${sub ? `<div class="sub-stat">${esc(sub)}</div>` : ""}
   </div>`;
 }
 
+// Fixed HTML templates below escape every string and coerce numeric values.
+const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
 function render(data) {
-  const g = data.global;
-  const subjects = data.subjects || [];
+  const number = value => Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : 0;
+  const g = Object.fromEntries(Object.entries(data.global || {}).map(([k,v]) => [k,number(v)]));
+  const subjects = (data.subjects || []).map(s => ({...Object.fromEntries(Object.entries(s).filter(([k]) => k !== "subject").map(([k,v]) => [k, number(v)])), subject: String(s.subject || "default")}));
 
   // Global cards
   const totalLive = subjects.reduce((a, s) => a + s.live, 0);
@@ -160,8 +163,8 @@ function render(data) {
     const corrPct = pct(s.corrections, s.total);
     return `<div class="subject-card">
       <div class="subject-name">
-        <div class="subject-avatar">${initial}</div>
-        ${displayName}
+        <div class="subject-avatar">${esc(initial)}</div>
+        ${esc(displayName)}
         ${s.expiring_24h > 0 ? `<span style="font:10px var(--mono);color:var(--warn);margin-left:auto">⏳ ${s.expiring_24h} expiring</span>` : ""}
       </div>
       <div class="stat-row"><span class="sk">Live memories</span><span class="sv good">${s.live}</span></div>

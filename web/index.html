@@ -4,8 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Memory — a simulated Alexa+ experience</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
 <style>
   :root {
     --bg: #0a0d12; --panel: #111620; --panel-2: #0d1018;
@@ -99,6 +98,13 @@
   .expiring-item { font: 11px var(--sans); color: var(--ink-dim); background: rgba(255,180,84,.08); border: 1px solid rgba(255,180,84,.2); border-radius: 999px; padding: 2px 10px; white-space: nowrap; cursor: pointer; transition: .15s; }
   .expiring-item:hover { background: rgba(255,180,84,.15); color: var(--warn); }
   .expiring-item .hrs { color: var(--warn); font-weight: 600; }
+  .device-bar, .time-bar, .who-bar { flex-wrap: wrap; }
+  .device-info, #say { min-width: 0; }
+  .echo-panel, .proto-panel { min-width: 0; }
+  button:disabled { opacity: .45; cursor: default; }
+  .demo-notice { padding: 8px 20px; color: var(--warn); font-size: 12px; }
+  .timeline-frame { width: 100%; border: 1px solid var(--line); border-radius: 12px; min-height: 200px; }
+  @media (max-width: 860px) { #conv { max-height: 50vh; min-height: 140px; } #proto { max-height: 40vh; } .time-bar { gap: 8px; } }
 </style>
 </head>
 <body>
@@ -120,7 +126,8 @@
       <div class="pill" id="sessionPill">session <b>&mdash;</b></div>
       <div class="pill green" id="latencyPill">last call <b>&mdash;</b></div>
     </div>
-    <div id="conv"></div>
+    <div class="demo-notice">Synthetic shared demo only. Do not enter personal information. Speaker selection is not authentication; this is not a certified Alexa add-on.</div>
+    <div id="conv" role="log" aria-live="polite"></div>
     <div class="who-bar">
       <label>Speaking as:</label>
       <button class="who-btn active" data-who="">Default</button>
@@ -133,7 +140,7 @@
     </div>
     <div class="voice-status" id="voiceStatus"></div>
     <div class="input-bar">
-      <input type="text" id="say" placeholder="Say something to Alexa&hellip;" autocomplete="off">
+      <input type="text" id="say" aria-label="Message to memory assistant" maxlength="2000" placeholder="Say something to Memory&hellip;" autocomplete="off">
       <button id="micBtn" title="Hold Space or click to speak" aria-label="Start voice input">🎙️</button>
       <button id="send">Ask &rsaquo;</button>
     </div>
@@ -163,10 +170,10 @@
     </div>
     <div id="proto"></div>
     <div class="proto-footer">
-      <b>Nothing here is mocked.</b> Your text is routed by <span class="k">Amazon Nova Micro</span>
-      (Bedrock) to the right MCP tool &mdash; exactly how Alexa+ works. Every answer is assembled
-      deterministically from stored memory in under <b>50&thinsp;ms</b>. If Bedrock is unavailable,
-      a smart regex router takes over seamlessly.
+      <b>Real MCP, simulated Alexa+ presentation.</b> Deterministic routing works without a model.
+      Bedrock routing is optional and off by default. Every selected tool executes over
+      <span class="k">/mcp</span>; routing and tool timings are measured separately.
+      Export/import transfers current facts only, not the full history.
     </div>
   </div>
 </div>
@@ -174,6 +181,18 @@
 const $ = s => document.querySelector(s);
 const conv = $("#conv"), proto = $("#proto"), ring = $("#ring");
 let sessionId = null, msgId = 0, hourOverride = null, currentWho = "";
+let busy = false, connected = false, advertisedTools = new Set();
+const subject = () => currentWho || "default";
+function node(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text != null) el.textContent = String(text);
+  return el;
+}
+function setBusy(value) {
+  busy = value;
+  document.querySelectorAll('#send, #resetBtn, .who-btn, .t-btn, .chip, #exportBtn, #importFile').forEach(el => { el.disabled = value; });
+}
 
 const SUGGESTIONS = [
   { text: "catch me up",                          tag: null },
@@ -199,23 +218,21 @@ const SUGGESTIONS = [
 function packet(dir, method, body, timing) {
   const el = document.createElement("div");
   el.className = "pkt";
-  el.innerHTML = `<span class="dir ${dir}">${dir==="out"?"&#9650; POST":"&#9660; recv"}</span> `
-    + `<span class="meth">${method}</span>`
-    + (timing ? ` <span class="t">${timing}</span>` : "")
-    + (body ? `<pre>${JSON.stringify(body,null,1)}</pre>` : "");
+  el.append(node("span", `dir ${dir}`, dir === "out" ? "▲ POST " : "▼ recv "), node("span", "meth", method));
+  if (timing) el.append(node("span", "t", ` ${timing}`));
+  if (body) el.append(node("pre", "", JSON.stringify(body, null, 1)));
   proto.appendChild(el);
   proto.scrollTop = proto.scrollHeight;
 }
 
-function addTurn(who, text, ms) {
+function addTurn(who, text, ms, routingMs = null) {
   const el = document.createElement("div");
   el.className = `turn ${who==="you"?"you":"her"}`;
   const label = who==="you"
     ? (currentWho ? currentWho[0].toUpperCase()+currentWho.slice(1) : "You")
     : "Memory (Alexa+)";
-  el.innerHTML = `<div class="speaker">${label}</div><div class="bubble"></div>`
-    + (ms!=null ? `<div class="latency"><span class="dot"></span>${ms.toFixed(0)} ms &middot; no model call</div>` : "");
-  el.querySelector(".bubble").textContent = text;
+  el.append(node("div", "speaker", label), node("div", "bubble", text));
+  if (ms != null) el.append(node("div", "latency", `${ms.toFixed(0)} ms MCP tool · deterministic execution${routingMs == null ? '' : ` · ${routingMs.toFixed(0)} ms routing`}`));
   conv.appendChild(el);
   conv.scrollTop = conv.scrollHeight;
 }
@@ -237,270 +254,194 @@ async function rpc(method, params, {notify=false}={}) {
   const res = await fetch("/mcp", {method:"POST", headers, body: JSON.stringify(body)});
   const ms = performance.now() - t0;
   const sid = res.headers.get("mcp-session-id");
-  if (sid && !sessionId) { sessionId = sid; $("#sessionPill").innerHTML = `session <b>${sid.slice(0,8)}</b>`; }
+  if (sid && !sessionId) { sessionId = sid; $("#sessionPill b").textContent = sid.slice(0,8); }
   const raw = await res.text();
-  const msg = parseMcp(res.headers.get("content-type"), raw);
+  let msg;
+  try { msg = parseMcp(res.headers.get("content-type"), raw); }
+  catch (_) { throw new Error(`Invalid MCP response (HTTP ${res.status})`); }
   packet("in", `HTTP ${res.status}`, msg?.result ?? msg?.error ?? {}, `${ms.toFixed(0)} ms`);
-  $("#latencyPill").innerHTML = `last call <b>${ms.toFixed(0)} ms</b>`;
+  $("#latencyPill b").textContent = `${ms.toFixed(0)} ms`;
+  if (!res.ok) throw new Error(msg?.error?.message || `MCP HTTP ${res.status}`);
   if (msg?.error) throw new Error(msg.error.message||"MCP error");
   return {msg, ms};
 }
 
 async function callTool(name, args) {
   const {msg, ms} = await rpc("tools/call", {name, arguments: args});
-  const content = msg?.result?.content?.[0]?.text ?? "(no answer)";
-  return {text: content, ms};
+  const result = msg?.result;
+  if (!result) throw new Error("Missing MCP tool result");
+  if (result.isError) throw new Error(result.content?.[0]?.text || "MCP tool failed");
+  const content = result.structuredContent?.spoken ?? result.content?.filter(c => c.type === "text").map(c => c.text).join(" ") ?? "(no answer)";
+  return {text: content, ms, structured: result.structuredContent};
 }
 
 function route(said) {
-  const s = said.toLowerCase().trim().replace(/[?.!]+$/,"");
+  const text = normalizeUtterance(said);
+  const who = subject();
+  const choose = (tool, args = {}) => ({tool, args: {...args, who}});
+  const clarify = () => ({clarification: "Which fact or project should I change? Please name it and the new value."});
   let m;
-  const who = currentWho || undefined;
 
-  // ====================================================================
-  // TIER 1 — High-confidence regex patterns (exact intent match)
-  // ====================================================================
-
-  // -- PROFILE: location (MUST come before name — "I'm from X" is location, not name) --
-  if ((m = s.match(/^(?:i live in|i'm in|i am in|i'm from|i am from|i'm based in|i am based in|my (?:location|city|hometown|country|town) is|i reside in|based in|currently in|living in)\s+(.+)$/)))
-    return {tool:"set_profile", args:{key:"location", value:m[1].trim(), who}};
-
-  // -- PROFILE: name (restricted — won't match "i'm from/in/based/at") --
-  if ((m = s.match(/^(?:my name is|i'm called|call me|you can call me|i go by)\s+([a-z][a-z ]{0,30})$/)))
-    return {tool:"set_profile", args:{key:"name", value:m[1].trim(), who}};
-  if ((m = s.match(/^(?:i am|i'm)\s+(?!from\b|in\b|based\b|at\b|living\b|currently\b)([a-z][a-z ]{0,30})$/)))
-    return {tool:"set_profile", args:{key:"name", value:m[1].trim(), who}};
-  if ((m = s.match(/^([a-z]+),?\s+(?:that's my name|is my name|here)$/)))
-    return {tool:"set_profile", args:{key:"name", value:m[1].trim(), who}};
-
-
-
-  // -- PROFILE: timezone --
-  if ((m = s.match(/^(?:my timezone is|my time zone is|i'm in timezone|i'm (?:utc|gmt)\s*[+-]?\d+|set (?:my )?timezone (?:to )?)\s*(.+)$/)))
-    return {tool:"set_profile", args:{key:"timezone", value:m[1].trim(), who}};
-
-  // -- TIME / DATE --
-  if (/^(?:what(?:'s| is)? the )?(?:time|date|day)\b|^what time|^what day|^what(?:'s| is) today|^today(?:'s| is)? (?:date|day)|^(?:current|local) (?:time|date|day)|^(?:is it|it is) (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|^what(?:'s| is) (?:the )?(?:current |local )?(?:time|date|day)|^tell me the (?:time|date|day)|^do you know what (?:time|day|date)/i.test(s))
-    return {tool:"what_time_is_it", args:{who}};
-
-  // -- LISTS: add --
-  if ((m = s.match(/^(?:add|put|throw|toss|stick|include)\s+(.+?)\s+(?:to|on|in|into|onto)\s+(?:my\s+|the\s+)?(.+?)\s*list$/)))
-    return {tool:"add_to_list", args:{item:m[1].trim(), list_name:m[2].trim().replace(/\s+$/,""), who}};
-  if ((m = s.match(/^(?:add|put|throw|toss)\s+(.+?)\s+(?:to|on|in)\s+(?:my|the)\s+(?:list|cart|basket)$/)))
-    return {tool:"add_to_list", args:{item:m[1].trim(), list_name:"shopping", who}};
-  if ((m = s.match(/^(?:i need|we need|buy|get|pick up|grab)\s+(.+?)(?:\s+(?:from the store|from the shop|at the store))?$/))) {
-    const item = m[1].trim().replace(/^(?:some|more|a|an|the)\s+/, "");
-    return {tool:"add_to_list", args:{item, list_name:"shopping", who}};
+  // Intent must be explicit before a tool may write. Questions are resolved
+  // before declarations; keyword similarity alone never authorizes a write.
+  if (/^(?:(?:it|that)(?:'s| is)\s+.+\s+now|(?:change|update|correct|fix)\s+(?:it|that|this)\s+to\s+.+)$/i.test(text)) return clarify();
+  if (/^(?:daily brief|morning summary|brief me(?: fully)?|full (?:brief|briefing|picture)|summari[sz]e my day|give me (?:(?:my|the) )?brief|give me the full picture|what(?:'s| is) (?:my )?(?:morning |daily )?summary)$/i.test(text)) return choose("daily_brief");
+  if (/^(?:catch me up|what did i miss|good (?:morning|afternoon|evening|night)|hello|hey|hi|anything new|what(?:'s| is) (?:new|up|happening|going on)|bring me up to (?:speed|date))$/i.test(text)) return choose("catch_me_up", {full: false});
+  if (/^(?:what.*(?:wrong|mistake|retracted|withdrawn)|have i made mistakes)/i.test(text)) return choose("wrong_about");
+  if (/^(?:what|which).*(?:moved|changed (?:the )?most|longest history|evolved|biggest shifts)/i.test(text)) return choose("what_moved");
+  if (/^(?:what|anything).*(?:changed|new since|different|updated recently|happened since|recent changes)/i.test(text)) return choose("what_changed", {since: "14 days ago"});
+  if (/shared with me|anything.*shared|what did .* share|left for me|messages for me|anything for me|what.*(?:tell|told|leave|left) (?:me|for me)/i.test(text)) return choose("shared_with_me");
+  if ((m = text.match(/^(?:show me the history of|history of|timeline of|what have i believed about)\s+(.+)$/i))) return choose("timeline", {about: m[1]});
+  if (/^(?:what(?:'s| is)? (?:the )?(?:current |local )?(?:time|date|day)|what(?:'s| is) today|today(?:'s| is)? (?:date|day)|(?:current|local) (?:time|date|day)|(?:is it|it is) (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|tell me the (?:time|date|day))/i.test(text)) return choose("what_time_is_it");
+  if (/^(?:what.*(?:working on|tracking|projects|goals)|my projects|show.*(?:projects|goals|tasks)|list.*(?:projects|goals)|active (?:projects|goals)|current (?:projects|goals))/i.test(text)) return choose("my_projects");
+  if ((m = text.match(/^(?:what(?:'s| is) on|read|show|list|give me|read me|tell me)\s+(?:my\s+|the\s+)?(.+?)\s*list$/i))) return choose("get_list", {list_name: m[1]});
+  if (/^(?:what do i need to (?:buy|get|pick up)|shopping list|my list|(?:read|show|give me) (?:my|the) list)$/i.test(text)) return choose("get_list", {list_name: "shopping"});
+  if ((m = text.match(/^what (?:was|were) (?:the |my )?(.+?)(?: on| in| back in| at)?\s+([a-z]+ \d{1,2},? \d{4}|\d{4}-\d{2}-\d{2}|\d+ \w+ ago|january|february|march|april|may|june|july|august|september|october|november|december|last week|last month|yesterday)$/i))) {
+    const months = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+    const month = months.indexOf(m[2].toLowerCase());
+    const when = month < 0 ? m[2] : `${new Date().getFullYear()}-${String(month+1).padStart(2,"0")}-15`;
+    return choose("recall", {about: m[1], when});
+  }
+  if ((m = text.match(/^recall\s+(.+)$/i))) return choose("recall", {about: m[1]});
+  if (isReadQuestion(text)) {
+    // A profile question must never match the "X is my name" declaration.
+    if (/(?:my name|my location|my timezone|my time zone)$/i.test(text)) return choose("recall", {about: /name$/i.test(text) ? "name" : /location$/i.test(text) ? "location" : "timezone"});
+    m = text.match(/^(?:what|when|who|where|how|why|do you (?:know|remember)|tell me|can you (?:tell|remind))(?:'s| is| are| does| do| was| were)?\s+(?:the |my |about |a )?(.+?)$/i);
+    return choose("recall", {about: m ? m[1] : text});
   }
 
-  // -- LISTS: read --
-  if ((m = s.match(/^(?:what(?:'s| is) on|read|show|list|give me|read me|tell me)\s+(?:my\s+|the\s+)?(.+?)\s*list$/)))
-    return {tool:"get_list", args:{list_name:m[1].trim(), who}};
-  if (/^(?:what(?:'s| is) on|read|show|give me)\s+(?:my|the)\s+(?:list|cart|basket)/.test(s))
-    return {tool:"get_list", args:{list_name:"shopping", who}};
-  if (/^(?:what do i need to (?:buy|get|pick up)|what(?:'s| am i) (?:buying|getting|picking up)|shopping list|my list)/.test(s))
-    return {tool:"get_list", args:{list_name:"shopping", who}};
+  // Project commands identify their domain; ordinary changed facts do not
+  // become projects just because they contain "moved to" or "is now".
+  if ((m = text.match(/^(?:track|log|start tracking|begin tracking)\s+(?:my\s+)?(.+?)\s+(?:as|with status|status)\s+(.+?)(?:\s*[-—]\s*(.+))?$/i))) return choose("track", {project: m[1], status: m[2], note: m[3] || ""});
+  if ((m = text.match(/^log that\s+(.+?)\s+is (?:in\s+)?(.+)$/i))) return choose("track", {project: m[1], status: m[2]});
+  if ((m = text.match(/^(?:update|set|change|move)\s+(?:my\s+)?(.+?)\s+project\s+(?:to|as|status to|status)\s+(.+)$/i))) return choose("track", {project: m[1], status: m[2]});
+  if ((m = text.match(/^(?:update|set|change|move)\s+(?:my\s+)?project\s+(.+?)\s+(?:to|as|status to|status)\s+(.+)$/i))) return choose("track", {project: m[1], status: m[2]});
+  if ((m = text.match(/^(?:change|correct|fix|actually|no wait|update)\s+(.+?)\s+to\s+(.+)$/i))) return choose("correct", {about: m[1], new_fact: `${m[1]} is ${m[2]}`});
+  if ((m = text.match(/^(.+?)\s+(?:moved to|changed to|is now)\s+(.+)$/i))) return choose("correct", {about: m[1], new_fact: `${m[1]} is ${m[2]}`});
+  if ((m = text.match(/^actually,?\s+(?:the\s+)?(.+?)\s+(?:is|are)\s+(.+)$/i))) return choose("correct", {about: m[1], new_fact: `${m[1]} is ${m[2]}`});
+  if ((m = text.match(/^(?:forget|withdraw|never mind|disregard|scratch|drop|i was mistaken about)\s+(?:about\s+|that\s+)?(.+)$/i))) return choose("forget", {about: m[1]});
 
-  // -- LISTS: remove --
-  if ((m = s.match(/^(?:remove|cross off|check off|take off|strike|delete|scratch|done with|got the?|picked up the?|bought the?)\s+(.+?)\s+(?:from|off)\s+(?:my\s+|the\s+)?(.+?)\s*list$/)))
-    return {tool:"remove_from_list", args:{item:m[1].trim(), list_name:m[2].trim(), who}};
-  if ((m = s.match(/^(?:remove|cross off|check off|take off|done with|got the?|i (?:got|bought|picked up)(?: the)?)\s+(.+?)(?:\s+(?:from|off)\s+(?:the|my)\s+list)?$/))) {
-    if (/list/.test(s) || /got |bought |picked up|cross off|check off/.test(s))
-      return {tool:"remove_from_list", args:{item:m[1].trim(), list_name:"shopping", who}};
-  }
+  if ((m = text.match(/^(?:remember|note|remind me|save|store|keep in mind)\s+(?:that\s+)?(.+?)\s+(?:until|just for|for the next|for|till|through)\s+(.+)$/i))) return choose("remember_for", {fact: m[1], until: m[2]});
+  if ((m = text.match(/^(?:remember|note|remind me|save|store|don't forget|do not forget|don't let me forget|do not let me forget|keep in mind|make a note|jot down)\s+(?:that\s+)?(.+)$/i))) return choose("remember", {fact: m[1]});
+  if ((m = text.match(/^(?:i live in|i'm in|i am in|i'm from|i am from|i'm based in|i am based in|my (?:location|city|hometown|country|town) is|based in)\s+(.+)$/i))) return choose("set_profile", {key: "location", value: m[1]});
+  if ((m = text.match(/^(?:my name is|i'm called|call me|you can call me|i go by)\s+(.+)$/i))) return choose("set_profile", {key: "name", value: m[1]});
+  if ((m = text.match(/^(?:i am|i'm)\s+(?!from\b|in\b|based\b|at\b|living\b)([a-z][a-z ]{0,30})$/i))) return choose("set_profile", {key: "name", value: m[1]});
+  if ((m = text.match(/^([a-z]+),?\s+(?:that's my name|is my name|here)$/i))) return choose("set_profile", {key: "name", value: m[1]});
+  if ((m = text.match(/^(?:my timezone is|my time zone is|set (?:my )?timezone (?:to )?)\s*(.+)$/i))) return choose("set_profile", {key: "timezone", value: m[1]});
+  if ((m = text.match(/^(?:tell|let|share with|inform|send|message|notify)\s+(\w+)\s+(?:that\s+|know\s+(?:that\s+)?)?(.+)$/i))) return choose("share", {fact: m[2], with_who: m[1]});
+  if ((m = text.match(/^(?:add|put|throw|toss|include)\s+(.+?)\s+(?:to|on|in|into|onto)\s+(?:my\s+|the\s+)?(.+?)\s*list$/i))) return choose("add_to_list", {item: m[1], list_name: m[2]});
+  if ((m = text.match(/^(?:add|put|throw|toss)\s+(.+?)\s+(?:to|on|in)\s+(?:my|the)\s+(?:list|cart|basket)$/i))) return choose("add_to_list", {item: m[1], list_name: "shopping"});
+  if ((m = text.match(/^(?:i need|we need|buy|get|pick up|grab)\s+(.+?)(?:\s+from the (?:store|shop))?$/i))) return choose("add_to_list", {item: m[1].replace(/^(?:some|more|a|an|the)\s+/i, ""), list_name: "shopping"});
+  if ((m = text.match(/^(?:remove|cross off|check off|take off|strike|delete|scratch)\s+(.+?)\s+(?:from|off)\s+(?:my\s+|the\s+)?(.+?)\s*list$/i))) return choose("remove_from_list", {item: m[1], list_name: m[2]});
+  if ((m = text.match(/^(?:remove|cross off|check off|take off|done with|got the?|i (?:got|bought|picked up)(?: the)?)\s+(.+)$/i))) return choose("remove_from_list", {item: m[1], list_name: "shopping"});
+  return choose("recall", {about: text});
+}
 
-  // -- PROJECTS: track --
-  if ((m = s.match(/^(?:track|log|start tracking|begin tracking)\s+(.+?)\s+(?:as|with status|status)\s+(.+?)(?:\s*[-—]\s*(.+))?$/)))
-    return {tool:"track", args:{project:m[1].trim(), status:m[2].trim(), note:m[3]?.trim()||"", who}};
-  if ((m = s.match(/^(?:update|set|change|move)\s+(.+?)\s+(?:to|as|status to|status)\s+(.+)$/)))
-    return {tool:"track", args:{project:m[1].trim(), status:m[2].trim(), who}};
-  if ((m = s.match(/^(.+?)\s+(?:is now|status is|moved to|changed to)\s+(.+)$/)))
-    return {tool:"track", args:{project:m[1].trim(), status:m[2].trim(), who}};
+function normalizeUtterance(value) {
+  let text = value.trim().replace(/[?.!]+$/, "");
+  // Strip conversational politeness, never arbitrary leading words.
+  for (let i = 0; i < 3; i++) text = text.replace(/^(?:(?:can|could|would|will) you\s+|please\s+)/i, "");
+  return text;
+}
 
-  // -- PROJECTS: list --
-  if (/^(?:what(?:'s| am| are)?.*(?:working on|tracking|my (?:projects|goals|tasks))|my projects|show.*(?:projects|goals|tasks)|list.*(?:projects|goals)|what.*(?:projects|goals)|active (?:projects|goals)|current (?:projects|goals))/.test(s))
-    return {tool:"my_projects", args:{who}};
+function isReadQuestion(value) {
+  return /^(?:what\b|what's\b|who\b|where\b|when\b|how\b|why\b|which\b|do you (?:know|remember)\b|tell me\b|show\b|read\b|recall\b|catch me up\b|daily brief\b|brief me\b)/i.test(normalizeUtterance(value));
+}
 
-  // -- GREETING / CATCH ME UP --
-  if (/^(?:catch me up|good (?:morning|afternoon|evening|night)|hello|hey|hi|wake up|anything new|what(?:'s| is) (?:new|up|happening|going on)|brief me|briefing|start|morning|whats new|status update|bring me up to (?:speed|date))/.test(s))
-    return {tool:"catch_me_up", args:{full:/full|everything|detail/.test(s), who}};
-
-  // -- DAILY BRIEF --
-  if (/^(?:daily brief|give me (?:my |the )?brief|morning summary|full picture|summaris[e|ing] my day|full (?:brief|briefing)|what(?:'s| is) (?:my )?(?:daily )?(?:brief|summary)|brief me fully)/.test(s))
-    return {tool:"daily_brief", args:{who}};
-
-  // -- WRONG ABOUT --
-  if (/wrong about|been wrong|mistakes?|incorrect|what.*(?:retracted|withdrawn|wrong)/.test(s))
-    return {tool:"wrong_about", args:{who}};
-
-  // -- WHAT MOVED --
-  if (/what.*(moved|changed most|longest history|evolved|biggest shifts|corrections over)/.test(s))
-    return {tool:"what_moved", args:{who}};
-
-  // -- WHAT CHANGED --
-  if (/what.*(changed|new since|different|updated recently|happened since|recent changes)/.test(s))
-    return {tool:"what_changed", args:{since:"14 days ago", who}};
-
-  // -- SHARED --
-  if (/shared with me|anything.*shared|what did .* share|left for me|messages for me|anything for me|what.*(?:tell|told|leave|left) (?:me|for me)/.test(s))
-    return {tool:"shared_with_me", args:{who}};
-  if ((m = s.match(/^(?:tell|let|share with|inform|send|message|notify)\s+(\w+)\s+(?:that\s+|know\s+(?:that\s+)?)?(.+)$/)))
-    return {tool:"share", args:{fact:m[2].trim(), with_who:m[1], who}};
-
-  // -- REMEMBER FOR (time-bounded) --
-  if ((m = s.match(/^(?:remember|note|remind me|save|store|keep in mind)\s+(?:that\s+)?(.+?)\s+(?:until|just for|for the next|for|till|through|expires?)\s+(.+)$/)))
-    return {tool:"remember_for", args:{fact:m[1].trim(), until:m[2].trim(), who}};
-
-  // -- REMEMBER --
-  if ((m = s.match(/^(?:remember|note|remind me|save|store|keep in mind|don't forget|do not forget|make a note|jot down)\s+(?:that\s+)?(.+)$/)))
-    return {tool:"remember", args:{fact:m[1], who}};
-
-  // -- CORRECT --
-  if ((m = s.match(/^(?:change|correct|fix|actually|no wait|update)\s+(.+?)\s+to\s+(.+)$/)))
-    return {tool:"correct", args:{about:m[1], new_fact:`${m[1]} is ${m[2]}`, who}};
-  if ((m = s.match(/^actually,?\s+(?:the\s+)?(.+?)\s+(?:is|are|was)\s+(.+)$/)))
-    return {tool:"correct", args:{about:m[1], new_fact:`${m[1]} is ${m[2]}`, who}};
-
-  // -- FORGET --
-  if ((m = s.match(/^(?:forget|withdraw|never mind|disregard|that(?:'s| is) (?:wrong|not true|incorrect)|scratch|drop)\s+(?:about\s+|that\s+)?(.+)$/)))
-    return {tool:"forget", args:{about:m[1], who}};
-
-  // -- TIMELINE --
-  if ((m = s.match(/^(?:show me the history of|history of|how has|timeline of|what have I believed about|show.*timeline|evolution of|track record of|story of)\s+(.+?)$/)))
-    return {tool:"timeline", args:{about:m[1], who}};
-
-  // -- RECALL (time-travel) --
-  if ((m = s.match(/^what (?:was|were) (?:the |my )?(.+?)(?: on| in| back in| at)?\s+([a-z]+ \d{1,2},? \d{4}|\d{4}-\d{2}-\d{2}|\d+ \w+ ago|june|may|march|april|january|february|july|august|september|october|november|december|last week|last month|yesterday)\??$/))) {
-    const MO={january:"01",february:"02",march:"03",april:"04",may:"05",june:"06",july:"07",august:"08",september:"09",october:"10",november:"11",december:"12"};
-    let when=m[2]; if(MO[when]) when=`2026-${MO[when]}-15`;
-    return {tool:"recall", args:{about:m[1], when, who}};
-  }
-
-  // ====================================================================
-  // TIER 2 — Keyword scoring fallback (handles messy / unexpected input)
-  // ====================================================================
-  const TOOL_KEYWORDS = {
-    set_profile:      {words:["name","call","called","live","location","city","hometown","timezone","from","based"], weight:3},
-    what_time_is_it:  {words:["time","date","day","today","clock","hour","morning","afternoon","evening","tonight","friday","monday","tuesday","wednesday","thursday","saturday","sunday","calendar","schedule"], weight:3},
-    add_to_list:      {words:["add","buy","need","shopping","list","grocery","groceries","pick","grab","milk","eggs","bread","packing","pack","cart","basket"], weight:2},
-    get_list:         {words:["list","shopping","show","read","what","on","items","things","need","buy"], weight:2},
-    remove_from_list: {words:["remove","cross","check","off","done","got","bought","picked","scratch"], weight:3},
-    track:            {words:["track","project","status","milestone","progress","working","started","finished","complete","build","building","planning","shipped","launched","deploy","deadline"], weight:2},
-    my_projects:      {words:["projects","goals","tracking","tasks","active","current","working"], weight:2},
-    catch_me_up:      {words:["morning","hello","hey","hi","sup","yo","new","update","brief","start","back","returned"], weight:1},
-    remember:         {words:["remember","note","save","store","keep","mind","forget","jot"], weight:1},
-    recall:           {words:["what","where","when","who","how","why","tell","know","about"], weight:1},
-    what_changed:     {words:["changed","different","new","recent","update","since","happened","lately"], weight:2},
-    share:            {words:["tell","share","send","message","inform","notify","let"], weight:2},
-  };
-
-  // Score each tool
-  const words = s.split(/\s+/);
-  let best = null, bestScore = 0;
-  for (const [tool, {words: kw, weight}] of Object.entries(TOOL_KEYWORDS)) {
-    let score = 0;
-    for (const w of words) {
-      if (kw.includes(w)) score += weight;
-    }
-    if (score > bestScore) { bestScore = score; best = tool; }
-  }
-
-  // If keyword scoring found a strong match, try to extract args
-  if (bestScore >= 4 && best) {
-    switch(best) {
-      case "set_profile": {
-        if (/name/.test(s)) {
-          const v = s.replace(/.*(?:name is|call me|i'm|i am)\s*/,"").trim();
-          if (v) return {tool:"set_profile", args:{key:"name", value:v, who}};
-        }
-        if (/live|from|based|city|location|in/.test(s)) {
-          const v = s.replace(/.*(?:live in|from|based in|city is|location is|i'm in|i am in)\s*/,"").trim();
-          if (v) return {tool:"set_profile", args:{key:"location", value:v, who}};
-        }
-        break;
-      }
-      case "what_time_is_it":
-        return {tool:"what_time_is_it", args:{who}};
-      case "add_to_list": {
-        // Try to extract item
-        const cleaned = s.replace(/^(?:can you |please |could you |i need to |i want to )/,"");
-        const addM = cleaned.match(/(?:add|buy|get|need|pick up|grab)\s+(.+?)(?:\s+(?:to|on|from|at)\s+.*)?$/);
-        if (addM) return {tool:"add_to_list", args:{item:addM[1].trim().replace(/^(?:some|more|a|an|the)\s+/,""), list_name:"shopping", who}};
-        break;
-      }
-      case "get_list":
-        return {tool:"get_list", args:{list_name:"shopping", who}};
-      case "my_projects":
-        return {tool:"my_projects", args:{who}};
-      case "catch_me_up":
-        return {tool:"catch_me_up", args:{who}};
-      case "what_changed":
-        return {tool:"what_changed", args:{since:"14 days ago", who}};
-    }
-  }
-
-  // ====================================================================
-  // TIER 3 — Generic recall (always a reasonable fallback)
-  // ====================================================================
-  if ((m = s.match(/^(?:what|when|who|where|how|why|do you (?:know|remember)|can you (?:tell|remind))(?:'s| is| are| does| do| was| were)?\s+(?:the |my |about |a )?(.+?)$/)))
-    return {tool:"recall", args:{about:m[1].replace(/\?$/,""), who}};
-
-  // Bare input → treat as recall (judges searching for stored facts)
-  return {tool:"recall", args:{about:s, who}};
+function isWriteTool(name) {
+  return ["remember", "remember_for", "correct", "forget", "share", "add_to_list", "remove_from_list", "track", "set_profile"].includes(name);
 }
 
 
 async function say(text) {
-  if (!text.trim()) return;
+  if (busy || !connected || !text.trim()) return;
+  const requestWho = subject(), requestHour = hourOverride;
+  setBusy(true);
   addTurn("you", text);
   $("#say").value = "";
   ring.classList.add("listening");
   $("#send").disabled = true;
   try {
-    // TRY 1: LLM routing via /api/chat (Amazon Bedrock — what real Alexa+ does)
-    let answer, ms, routedBy;
+    const localSelection = route(text);
+    if (localSelection.clarification) {
+      addTurn("her", localSelection.clarification);
+      return;
+    }
+    let selection = null;
+    const routingStart = performance.now();
     try {
-      const t0 = performance.now();
       const chatRes = await fetch("/api/chat", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({text, who: currentWho || ""}),
+        body: JSON.stringify({text, who: requestWho}),
       });
       const chatData = await chatRes.json();
-      if (!chatData.fallback && chatData.response) {
-        answer = chatData.response;
-        ms = chatData.ms || (performance.now() - t0);
-        routedBy = chatData.routed_by || "bedrock";
-        packet("in", `routed by ${routedBy}`, {tool: chatData.tool, args: chatData.args}, `${ms.toFixed(0)} ms`);
+      if (!chatRes.ok) throw new Error(chatData.error || `Routing HTTP ${chatRes.status}`);
+      if (!chatData.fallback && typeof chatData.tool === "string" && chatData.args && !Array.isArray(chatData.args)) {
+        selection = {tool: chatData.tool, args: {...chatData.args}};
+        packet("in", `routing selection (${chatData.routed_by || 'server'})`, selection);
       }
-    } catch(e) { /* /api/chat failed or unavailable — fall through to regex */ }
-
-    // TRY 2: Client-side regex router (fallback)
-    if (!answer) {
-      const {tool, args} = route(text);
-      if (hourOverride!=null && tool==="catch_me_up") args.hour = hourOverride;
-      const result = await callTool(tool, args);
-      answer = result.text;
-      ms = result.ms;
+    } catch(e) {
+      // A network failure can use local routing; server rejections never bypass guards.
+      if (!(e instanceof TypeError)) throw e;
+      packet("in", "local routing (server unavailable)", {});
     }
-
-    addTurn("her", answer, ms);
+    if (!selection || (isReadQuestion(text) && isWriteTool(selection.tool))) selection = localSelection;
+    if (advertisedTools.size && !advertisedTools.has(selection.tool)) throw new Error("Routing selected an unavailable tool");
+    selection.args.who = requestWho;
+    if (requestHour != null && selection.tool === "catch_me_up") selection.args.hour = requestHour;
+    const routingMs = performance.now() - routingStart;
+    const result = await callTool(selection.tool, selection.args);
+    addTurn("her", result.text, result.ms, routingMs);
+    if (selection.tool === "timeline" && result.structured) await showTimeline(result.structured);
+    await pollReminders();
   } catch(err) {
     addTurn("her", "Something went wrong: "+err.message);
   } finally {
     ring.classList.remove("listening");
-    $("#send").disabled = false;
+    setBusy(false);
   }
+}
+
+async function showTimeline(data) {
+  const {msg} = await rpc("resources/read", {uri: "ui://memory/timeline"});
+  const html = msg?.result?.contents?.find(c => typeof c.text === "string")?.text;
+  if (!html) throw new Error("Timeline resource unavailable");
+  const frame = node("iframe", "timeline-frame");
+  frame.title = "Memory timeline";
+  frame.sandbox = "allow-scripts";
+  let ready = false;
+  const listener = event => {
+    if (!frame.isConnected) { window.removeEventListener("message", listener); return; }
+    if (event.source !== frame.contentWindow || event.data?.jsonrpc !== "2.0") return;
+    const m = event.data;
+    if (m.method === "ui/initialize") {
+      frame.contentWindow.postMessage({jsonrpc: "2.0", id: m.id, result: {protocolVersion: "2026-01-26", hostInfo: {name: "memory-simulator", version: "1"}, hostCapabilities: {}, hostContext: {theme: "dark"}}}, "*");
+    } else if (m.method === "ui/notifications/initialized") {
+      ready = true;
+      frame.contentWindow.postMessage({jsonrpc: "2.0", method: "ui/notifications/tool-result", params: {structuredContent: data}}, "*");
+    } else if (ready && m.method === "ui/notifications/size-changed") {
+      const height = Number(m.params?.height);
+      if (Number.isFinite(height)) frame.style.height = `${Math.max(160, Math.min(1200, height))}px`;
+    }
+  };
+  window.addEventListener("message", listener);
+  // Fixed server-owned resource, no user HTML; sandbox denies same-origin and network.
+  frame.srcdoc = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'; style-src \'unsafe-inline\'; connect-src \'none\'">' + html;
+  conv.appendChild(frame);
 }
 
 async function connect() {
   const {msg} = await rpc("initialize", {protocolVersion:"2025-11-25", capabilities:{}, clientInfo:{name:"alexa-simulator",version:"2.0"}});
   await rpc("notifications/initialized", {}, {notify:true});
-  await rpc("tools/list", {});
+  const listing = await rpc("tools/list", {});
+  advertisedTools = new Set((listing.msg?.result?.tools || []).map(t => t.name));
+  connected = true;
 }
 
 SUGGESTIONS.forEach(({text, tag}) => {
-  const b = document.createElement("div");
+  const b = document.createElement("button");
+  b.type = "button";
   b.className = "chip"+(tag==="new"?" new":"");
   b.textContent = text;
   b.onclick = () => say(text);
@@ -509,14 +450,20 @@ SUGGESTIONS.forEach(({text, tag}) => {
 
 document.querySelectorAll(".who-btn").forEach(btn => {
   btn.onclick = () => {
+    if (busy) return;
     document.querySelectorAll(".who-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     currentWho = btn.dataset.who;
+    conv.replaceChildren(); proto.replaceChildren();
+    $("#expiringItems").replaceChildren(); $("#expiringStrip").classList.remove("visible");
+    $("#dashBtn").href = `/dashboard?who=${encodeURIComponent(subject())}`;
+    pollReminders();
   };
 });
 
 document.querySelectorAll(".t-btn").forEach(btn => {
   btn.onclick = () => {
+    if (busy) return;
     const h = Number(btn.dataset.hour);
     const already = hourOverride===h;
     hourOverride = already ? null : h;
@@ -554,7 +501,7 @@ $("#say").addEventListener("keydown", e => { if (e.key==="Enter") say($("#say").
   let interimText = "";
 
   function startRecording() {
-    if (isRecording) return;
+    if (isRecording || busy || !connected) return;
     isRecording = true;
     interimText = "";
     micBtn.classList.add("recording");
@@ -590,9 +537,8 @@ $("#say").addEventListener("keydown", e => { if (e.key==="Enter") say($("#say").
   };
 
   recognition.onerror = (e) => {
-    voiceStatus.textContent = e.error === "no-speech" ? "No speech detected — try again" : `Error: ${e.error}`;
     stopRecording();
-    setTimeout(() => { voiceStatus.textContent = ""; }, 2000);
+    voiceStatus.textContent = e.error === "no-speech" ? "No speech detected — try again or type" : `Voice error: ${e.error}. Typing still works.`;
   };
 
   recognition.onend = () => stopRecording();
@@ -609,18 +555,28 @@ $("#say").addEventListener("keydown", e => { if (e.key==="Enter") say($("#say").
 })();
 // ── End Voice Input ────────────────────────────────────────────────────────
 $("#resetBtn").onclick = async () => {
-  await fetch("/api/seed", {method:"POST"});
-  conv.innerHTML = ""; proto.innerHTML = "";
-  sessionId = null; msgId = 0;
-  await connect(); await say("catch me up");
+  if (busy) return;
+  setBusy(true);
+  try {
+    const r = await fetch("/api/seed", {method:"POST"});
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    conv.replaceChildren(); proto.replaceChildren();
+    sessionId = null; msgId = 0; connected = false;
+    await connect();
+  } catch (e) { addTurn("her", `Unable to reset: ${e.message}`); }
+  finally { setBusy(false); }
+  if (connected && !conv.children.length) await say("catch me up");
 };
 
 // ── Feature 2: Proactive Reminders polling ──────────────────────────────────
 async function pollReminders() {
+  const requestWho = subject();
   try {
-    const r = await fetch("/api/reminders?hours=24");
+    const r = await fetch(`/api/reminders?hours=24&who=${encodeURIComponent(requestWho)}`);
     if (!r.ok) return;
     const data = await r.json();
+    if (requestWho !== subject()) return;
     const strip = $("#expiringStrip");
     const items = $("#expiringItems");
     if (!data.reminders || data.reminders.length === 0) {
@@ -628,15 +584,18 @@ async function pollReminders() {
       return;
     }
     strip.classList.add("visible");
-    items.innerHTML = data.reminders.map(rem => {
+    items.replaceChildren();
+    data.reminders.forEach(rem => {
       const hrs = rem.hours_left < 1
         ? "<1h" : rem.hours_left < 2
         ? "~1h" : `${rem.hours_left}h`;
       const short = rem.text.length > 40 ? rem.text.slice(0, 37) + "…" : rem.text;
-      return `<span class="expiring-item" onclick="say('what is ${short.split(' ').slice(0,3).join(' ')}')" title="${rem.text}">
-        ${short} <span class="hrs">(${hrs})</span>
-      </span>`;
-    }).join("");
+      const item = node("button", "expiring-item", short);
+      item.type = "button"; item.title = rem.text;
+      item.append(node("span", "hrs", ` (${hrs})`));
+      item.addEventListener("click", () => say(`what is ${rem.text.split(' ').slice(0,3).join(' ')}`));
+      items.append(item);
+    });
   } catch(e) { /* server unavailable — silent */ }
 }
 pollReminders();
@@ -645,32 +604,45 @@ setInterval(pollReminders, 60_000);
 
 // ── Feature 5: Memory Export / Import ──────────────────────────────────────
 document.getElementById("exportBtn").onclick = () => {
-  window.open("/api/export?fmt=json", "_blank");
+  if (!busy) window.open(`/api/export?fmt=json&who=${encodeURIComponent(subject())}`, "_blank", "noopener");
 };
 document.getElementById("importFile").onchange = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
+  if (busy) return;
+  const requestWho = subject();
+  setBusy(true);
   try {
+    if (file.size > 131072) throw new Error("Snapshot exceeds 128 KiB");
     const text = await file.text();
     const payload = JSON.parse(text);
-    const r = await fetch("/api/import", {
+    const r = await fetch(`/api/import?who=${encodeURIComponent(requestWho)}`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(payload),
     });
     const result = await r.json();
+    if (!r.ok) throw new Error(result.error || `HTTP ${r.status}`);
     addTurn("her",
       `Memory imported! ${result.imported} new memories added, ${result.skipped} already existed.`
-        + (result.errors.length ? ` (${result.errors.length} errors)` : "")
+        + (result.errors?.length ? ` (${result.errors.length} errors)` : "")
     );
   } catch(err) {
     addTurn("her", "Import failed: " + err.message);
   }
   e.target.value = "";
+  setBusy(false);
+  await pollReminders();
 };
 // ── End Export / Import ─────────────────────────────────────────────────────
 
-(async () => { await connect(); await say("catch me up"); })();
+(async () => {
+  setBusy(true);
+  try { await connect(); }
+  catch (e) { addTurn("her", `Connection failed: ${e.message}. Reload to retry.`); }
+  finally { setBusy(false); }
+  if (connected) await say("catch me up");
+})();
 </script>
 </body>
 </html>

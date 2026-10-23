@@ -69,6 +69,7 @@
 
 let nextId = 0;
 const pending = new Map();
+let initialized = false;
 
 function send(method, params, {notify = false} = {}) {
   const msg = notify
@@ -79,6 +80,7 @@ function send(method, params, {notify = false} = {}) {
 }
 
 function reportSize() {
+  if (!initialized) return;
   send("ui/notifications/size-changed",
        {height: document.documentElement.scrollHeight}, {notify: true});
 }
@@ -110,7 +112,7 @@ function render(data) {
       ? `<span class="tag now">now</span>`
       : e.status === "withdrawn"
         ? `<span class="tag gone">withdrawn</span>`
-        : `<span class="tag">replaced</span>`;
+        : `<span class="tag">${esc(["replaced", "expired", "scheduled"].includes(e.status) ? e.status : "unknown")}</span>`;
 
     let when = e.starts ? `from ${esc(e.starts)}` : "";
     if (e.ends) when += ` until ${esc(e.ends)}`;
@@ -129,16 +131,21 @@ function render(data) {
 }
 
 window.addEventListener("message", (event) => {
+  if (event.source !== window.parent) return;
   const msg = event.data;
   if (!msg || msg.jsonrpc !== "2.0") return;
 
   // Response to our ui/initialize
-  if (msg.id !== undefined && msg.result && pending.has(msg.id)) {
+  if (msg.id !== undefined && pending.has(msg.id)) {
     pending.delete(msg.id);
+    if (msg.error) { document.getElementById("foot").textContent = "Timeline initialization failed."; return; }
+    initialized = true;
+    send("ui/notifications/initialized", {}, {notify: true});
+    reportSize();
     return;
   }
 
-  if (msg.method === "ui/notifications/tool-result") {
+  if (initialized && msg.method === "ui/notifications/tool-result") {
     const r = msg.params?.result ?? msg.params;
     render(r?.structuredContent ?? r);
   }
@@ -146,11 +153,11 @@ window.addEventListener("message", (event) => {
 
 /* Handshake. Declare no capabilities: this view only displays. */
 const initId = send("ui/initialize", {
+  appInfo: {name: "memory-timeline", version: "1.0"},
   appCapabilities: {},
   protocolVersion: "2026-01-26",
 });
 pending.set(initId, true);
-reportSize();
 </script>
 </body>
 </html>

@@ -41,6 +41,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import math
+import re
+import shutil
+import threading
+import uuid
+from functools import wraps
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -65,7 +71,7 @@ class Kind(str, Enum):
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat()
 
 
 def parse_time(value: str) -> datetime:
@@ -106,15 +112,24 @@ class Memory:
     id: str = ""
 
     def __post_init__(self) -> None:
-        if not self.text.strip():
+        if not isinstance(self.text, str) or not self.text.strip() or len(self.text) > 2000:
             raise ValueError("a memory needs text")
-        if not 0.0 <= self.confidence <= 1.0:
-            raise ValueError(f"confidence must be in [0,1], got {self.confidence}")
+        if not isinstance(self.kind, Kind):
+            raise ValueError("invalid memory kind")
+        for value in (self.subject, self.source):
+            if not isinstance(value, str) or not value.strip() or len(value) > 128:
+                raise ValueError("invalid memory identity")
+        if type(self.confidence) not in (int, float) or not math.isfinite(self.confidence) or not 0 <= self.confidence <= 1:
+            raise ValueError("invalid confidence")
+        if not isinstance(self.tags, tuple) or len(self.tags) > 32 or any(not isinstance(t, str) or not t.strip() or len(t) > 128 for t in self.tags):
+            raise ValueError("invalid tags")
+        if not isinstance(self.asserted_at, str) or any(v is not None and not isinstance(v, str) for v in (self.valid_from, self.valid_until)):
+            raise ValueError("invalid timestamps")
 
         parse_time(self.asserted_at)
-        if self.valid_from:
+        if self.valid_from is not None:
             parse_time(self.valid_from)
-        if self.valid_until:
+        if self.valid_until is not None:
             parse_time(self.valid_until)
         if self.valid_from and self.valid_until:
             if parse_time(self.valid_until) <= parse_time(self.valid_from):
@@ -122,6 +137,8 @@ class Memory:
 
         if not self.id:
             object.__setattr__(self, "id", self._compute_id())
+        elif not isinstance(self.id, str) or not re.fullmatch(r"[0-9a-f]{24}", self.id) or self.id != self._compute_id():
+            raise ValueError("inconsistent memory id")
 
     def _compute_id(self) -> str:
         """Content-addressed over the fields that make this memory distinct.
@@ -149,6 +166,8 @@ class Memory:
 
     @classmethod
     def from_dict(cls, d: dict) -> Memory:
+        if not isinstance(d, dict) or not isinstance(d.get("tags", []), (list, tuple)):
+            raise ValueError("invalid memory object")
         d = dict(d)
         d["kind"] = Kind(d.get("kind", "fact"))
         d["tags"] = tuple(d.get("tags", ()))
@@ -164,6 +183,16 @@ class Retraction:
     reason: str
 
 
+def synchronized(fn):
+    @wraps(fn)
+    def guarded(self, *args, **kwargs):
+        with self.lock:
+            if self._closed:
+                raise RuntimeError("memory writer is closed")
+            return fn(self, *args, **kwargs)
+    return guarded
+
+
 class MemoryStore:
     """An append-only event log with a rebuildable projection.
 
@@ -173,13 +202,52 @@ class MemoryStore:
     """
 
     def __init__(self, path: str | Path) -> None:
+        self.lock = threading.RLock()
+        self._closed = False
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._writer = self.path.with_name(self.path.name + '.writer.lock').open('a+b')
+        try:
+            if os.name == 'nt':
+                import msvcrt
+                self._writer.seek(0)
+                if not self._writer.read(1):
+                    self._writer.write(b'0'); self._writer.flush()
+                self._writer.seek(0)
+                msvcrt.locking(self._writer.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self._writer.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            self._writer.close()
+            self._closed = True
+            raise RuntimeError('another memory writer owns this store') from None
         self._memories: dict[str, Memory] = {}
         self._order: list[str] = []
         self._retracted: dict[str, Retraction] = {}
         self._superseded_by: dict[str, str] = {}
         self._closed_at: dict[str, str] = {}
+        try:
+            self._replay()
+        except Exception:
+            self.close()
+            raise
+
+    def close(self):
+        with self.lock:
+            if not self._closed:
+                self._closed = True
+                self._writer.close()
+
+    def __del__(self):
+        if hasattr(self, '_writer'):
+            self._writer.close()
+
+    @synchronized
+    def archive_reset(self):
+        """Archive first, reset this holder, and keep the writer lease."""
+        if self.path.exists():
+            self.path.rename(self.path.with_name(self.path.name + '.archive-' + uuid.uuid4().hex))
         self._replay()
 
     # -- log ------------------------------------------------------------
@@ -193,7 +261,16 @@ class MemoryStore:
         if not self.path.exists():
             return
 
-        raw = self.path.read_text(encoding="utf-8")
+        data = self.path.read_bytes()
+        if data and not data.endswith(b'\n'):
+            # Preserve the original damaged log before repairing the boundary.
+            archive = self.path.with_name(self.path.name + '.damaged-' + uuid.uuid4().hex)
+            shutil.copyfile(self.path, archive)
+            boundary = data.rfind(b'\n') + 1
+            data = data[:boundary]
+            with self.path.open('wb') as fh:
+                fh.write(data); fh.flush(); os.fsync(fh.fileno())
+        raw = data.decode('utf-8')
         lines = raw.split("\n")
 
         # A process killed mid-write leaves an unterminated final line. Dropping
@@ -208,7 +285,7 @@ class MemoryStore:
                 self._apply(json.loads(line))
             except (json.JSONDecodeError, TypeError, ValueError, KeyError) as exc:
                 raise ValueError(
-                    f"{self.path}:{lineno} is not a readable event: {exc}"
+                    f"unreadable memory event at line {lineno}"
                 ) from exc
 
     def _apply(self, event: dict) -> None:
@@ -246,6 +323,7 @@ class MemoryStore:
 
     # -- writing --------------------------------------------------------
 
+    @synchronized
     def add(self, memory: Memory) -> Memory:
         """Assert a new memory."""
         if memory.id in self._memories:
@@ -253,6 +331,7 @@ class MemoryStore:
         self._write({"event": "assert", "memory": memory.to_dict()})
         return memory
 
+    @synchronized
     def supersede(self, old_id: str, new: Memory, *, at: str | None = None) -> Memory:
         """Record that the answer changed.
 
@@ -272,6 +351,8 @@ class MemoryStore:
             raise ValueError(f"memory {old_id} was retracted; it cannot be superseded")
         if new.id in self._memories:
             raise ValueError(f"memory {new.id} already exists")
+        if new.subject != old.subject:
+            raise ValueError("correction cannot change subject")
 
         changeover = at or new.valid_from or new.asserted_at
         parse_time(changeover)
@@ -285,6 +366,7 @@ class MemoryStore:
         )
         return new
 
+    @synchronized
     def retract(self, memory_id: str, reason: str, *, at: str | None = None) -> Retraction:
         """Withdraw a memory as wrong, without erasing that it was believed.
 
@@ -298,6 +380,7 @@ class MemoryStore:
         if memory_id in self._retracted:
             raise ValueError(f"memory {memory_id} is already retracted")
 
+        parse_time(at or now_iso())
         self._write(
             {
                 "event": "retract",
@@ -319,9 +402,10 @@ class MemoryStore:
     def superseded_by(self, memory_id: str) -> str | None:
         return self._superseded_by.get(memory_id)
 
+    @synchronized
     def all(self) -> Iterator[Memory]:
         """Every memory ever asserted, in write order — retracted ones included."""
-        return (self._memories[i] for i in self._order)
+        return iter(tuple(self._memories[i] for i in self._order))
 
     def valid_window(self, memory: Memory) -> tuple[str | None, str | None]:
         """The memory's effective valid window.
@@ -329,7 +413,8 @@ class MemoryStore:
         A supersession closes the window of the record it replaced, so the
         effective end may be later than what the record itself declares.
         """
-        return memory.valid_from, memory.valid_until or self._closed_at.get(memory.id)
+        ends = [e for e in (memory.valid_until, self._closed_at.get(memory.id)) if e]
+        return memory.valid_from, min(ends, key=parse_time) if ends else None
 
     def true_at(self, memory: Memory, when: str | datetime | None = None) -> bool:
         """Did the world match this memory at ``when``?"""
@@ -359,6 +444,7 @@ class MemoryStore:
             out.append(memory)
         return out
 
+    @synchronized
     def as_of(
         self,
         *,

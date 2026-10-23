@@ -20,6 +20,12 @@ Kept free of transport concerns so it can be tested without HTTP.
 from __future__ import annotations
 
 import re
+import math
+import inspect
+from functools import wraps
+import threading
+from typing import get_type_hints, get_origin, get_args, Union
+import types
 from datetime import datetime, timedelta, timezone
 
 from pydantic import BaseModel, Field
@@ -81,6 +87,15 @@ def parse_when(phrase: str | None, *, now: datetime | None = None) -> datetime:
     except ValueError:
         pass
 
+    numbers = {'one':'1','two':'2','three':'3','four':'4','five':'5','six':'6','seven':'7'}
+    text = ' '.join(numbers.get(word,word) for word in text.split())
+    weekdays = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
+    day_phrase = re.fullmatch(r'(next |last )?('+'|'.join(weekdays)+r')',text)
+    if day_phrase:
+        delta = (weekdays.index(day_phrase.group(2))-moment.weekday()) % 7
+        if day_phrase.group(1) == 'last ': delta = delta - 7 if delta else -7
+        elif day_phrase.group(1) == 'next ' and delta == 0: delta = 7
+        return (moment+timedelta(days=delta)).replace(hour=0,minute=0,second=0,microsecond=0)
     relative = re.fullmatch(r"(\d+)\s+(day|week|month|year)s?\s+ago", text)
     if relative:
         count = int(relative.group(1))
@@ -184,7 +199,8 @@ def _join(items: list[str]) -> str:
 
 
 def _plural(count: int, noun: str) -> str:
-    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+    plural = noun[:-1] + "ies" if noun.endswith("memory") else noun + "s"
+    return f"{count} {noun if count == 1 else plural}"
 
 
 def _speak_change(item: str) -> str:
@@ -275,7 +291,8 @@ class MemoryTools:
         utc_offset_hours: float = 8.0,
     ) -> None:
         self.store = store
-        self.subject = subject
+        from server.safety import subject as normalize_subject
+        self.subject = normalize_subject(subject)
         # The listener's local offset, never the host's. A server briefing
         # somebody in another timezone must use their hour.
         self.utc_offset_hours = utc_offset_hours
@@ -287,7 +304,8 @@ class MemoryTools:
                 match = re.search(r"([+-]?\d+(?:\.\d+)?)", m.text)
                 if match:
                     try:
-                        return float(match.group(1))
+                        offset = float(match.group(1))
+                        if math.isfinite(offset) and -12 <= offset <= 14: return offset
                     except ValueError:
                         pass
         return self.utc_offset_hours
@@ -418,6 +436,9 @@ class MemoryTools:
         name = _display_name(self.store, self.subject)
         name_part = f", {name}" if name != "there" else ""
 
+        if any(m.kind is not Kind.EVENT and m.text == fact.strip() and m.tags == tuple(tags or ()) and not m.valid_until for m in self.store.live(self.subject)):
+            return "I already remember that."
+
         # Check for overlap with existing facts (clever callback)
         words = [w for w in fact.strip().lower().split() if len(w) > 3]
         overlap = [
@@ -431,7 +452,7 @@ class MemoryTools:
             text=fact.strip(),
             subject=self.subject,
             source="alexa",
-            valid_from=_now().isoformat(timespec="seconds"),
+            valid_from=_now().isoformat(),
             tags=tuple(tags or ()),
         )
         self.store.add(memory)
@@ -439,7 +460,7 @@ class MemoryTools:
         if overlap:
             old = overlap[0].text
             if old != fact.strip():
-                return f"Got it{name_part}. Updated — it was '{old}' before."
+                return f"Got it{name_part}. I'll also remember that {fact.strip()}."
         return f"Got it{name_part}. I'll remember that {fact.strip()}."
 
     def remember_for(self, fact: str, until: str, *, tags: list[str] | None = None) -> str:
@@ -455,24 +476,28 @@ class MemoryTools:
         if not fact.strip():
             return "I need something to remember."
         try:
-            expires = _parse_until(until)
+            local = _now().astimezone(timezone(timedelta(hours=self._get_tz_offset())))
+            expires = _parse_until(until, now=local)
         except ValueError as exc:
             return str(exc)
         memory = Memory(
             text=fact.strip(),
             subject=self.subject,
             source="alexa",
-            valid_from=_now().isoformat(timespec="seconds"),
+            valid_from=_now().isoformat(),
             valid_until=expires.isoformat(timespec="seconds"),
             tags=tuple(tags or ()),
         )
         self.store.add(memory)
-        label = _fmt_until(expires)
+        today = local.date()
+        delta = (expires.astimezone(local.tzinfo).date()-today).days
+        label = 'end of today' if delta == 0 else ('tomorrow' if delta == 1 else _fmt_date(expires))
         return f"Got it. I'll remember that {fact.strip()}, until {label}."
 
     def correct(self, about: str, new_fact: str) -> str:
         """The answer changed. Supersede, keeping the old one for history."""
-        matches = [m for m in self.store.as_of(subject=self.subject) if _matches(m, about)]
+        if not new_fact.strip(): return "I need a corrected fact."
+        matches = [m for m in self.store.as_of(subject=self.subject) if m.kind is not Kind.EVENT and _matches(m, about)]
         if not matches:
             return f"I don't have anything about {about} to correct."
         if len(matches) > 1:
@@ -480,12 +505,14 @@ class MemoryTools:
             return f"I know a few things about {about}: {options}. Which one?"
 
         old = matches[0]
+        if old.text == new_fact.strip(): return "That is already the current fact."
         replacement = Memory(
             text=new_fact.strip(),
             subject=self.subject,
             source="alexa",
-            valid_from=_now().isoformat(timespec="seconds"),
+            valid_from=_now().isoformat(),
             tags=old.tags,
+            valid_until=old.valid_until,
         )
         self.store.supersede(old.id, replacement)
         return (
@@ -495,7 +522,7 @@ class MemoryTools:
 
     def forget(self, about: str, reason: str = "you told me it was wrong") -> str:
         """It was never true. Retract — which does not delete."""
-        matches = [m for m in self.store.as_of(subject=self.subject) if _matches(m, about)]
+        matches = [m for m in self.store.as_of(subject=self.subject) if m.kind is not Kind.EVENT and _matches(m, about)]
         if not matches:
             return f"I don't have anything about {about}."
         if len(matches) > 1:
@@ -736,7 +763,9 @@ class MemoryTools:
         rather than one contested one. The store has always scoped by subject;
         this is the seam that uses it.
         """
-        if not who or who.strip().lower() == self.subject:
+        from server.safety import subject as normalize_subject
+        who = self.subject if who is None else normalize_subject(who)
+        if who == self.subject:
             return self
         return MemoryTools(
             self.store,
@@ -766,7 +795,7 @@ class MemoryTools:
             text=fact.strip(),
             subject=recipient,
             source="alexa",
-            valid_from=_now().isoformat(timespec="seconds"),
+            valid_from=_now().isoformat(),
             tags=(tag,),
         )
         self.store.add(memory)
@@ -850,7 +879,7 @@ class MemoryTools:
         # Idempotency: don't double-add
         existing = [
             m for m in self.store.as_of(subject=self.subject)
-            if tag in m.tags and item.strip().lower() in m.text.lower()
+            if tag in m.tags and item.strip().casefold() == m.text.strip().casefold()
         ]
         if existing:
             return f"{item.strip().title()} is already on your {list_name} list."
@@ -858,13 +887,13 @@ class MemoryTools:
         prev = [
             m for m in self.store.all()
             if m.subject == self.subject and tag in m.tags
-            and item.strip().lower() in m.text.lower()
+            and item.strip().casefold() == m.text.strip().casefold()
         ]
         self.store.add(Memory(
             text=item.strip(),
             subject=self.subject,
             source="alexa",
-            valid_from=_now().isoformat(timespec="seconds"),
+            valid_from=_now().isoformat(),
             tags=(tag,),
         ))
         total = len([m for m in self.store.as_of(subject=self.subject) if tag in m.tags])
@@ -886,10 +915,11 @@ class MemoryTools:
 
     def remove_from_list(self, item: str, list_name: str = "shopping") -> str:
         """Check off or remove an item from a named list."""
+        if not item.strip(): return "I need an item to remove."
         tag = f"{self.LIST_TAG_PREFIX}{list_name.strip().lower()}"
         matches = [
             m for m in self.store.as_of(subject=self.subject)
-            if tag in m.tags and item.strip().lower() in m.text.lower()
+            if tag in m.tags and item.strip().casefold() == m.text.strip().casefold()
         ]
         if not matches:
             return f"I don't see {item.strip()} on your {list_name} list."
@@ -913,12 +943,13 @@ class MemoryTools:
             text += f" — {note.strip()}"
         if existing:
             old_text = existing[0].text
+            if old_text == text: return "That project already has this status."
             old_status = old_text.split(":", 1)[1].strip().split(" —")[0].strip() if ":" in old_text else old_text
             self.store.supersede(existing[0].id, Memory(
                 text=text,
                 subject=self.subject,
                 source="alexa",
-                valid_from=_now().isoformat(timespec="seconds"),
+                valid_from=_now().isoformat(),
                 tags=(tag,),
             ))
             return f"Updated — {project.strip()} is now '{status.strip()}'. Was '{old_status}' before."
@@ -926,7 +957,7 @@ class MemoryTools:
             text=text,
             subject=self.subject,
             source="alexa",
-            valid_from=_now().isoformat(timespec="seconds"),
+            valid_from=_now().isoformat(),
             tags=(tag,),
         ))
         return f"Tracking {project.strip()} as '{status.strip()}'."
@@ -950,6 +981,12 @@ class MemoryTools:
         """Store a profile fact (name, location, timezone) used by personality layer."""
         if not key.strip() or not value.strip():
             return "I need both a key and a value."
+        if key.strip().lower() not in {"name","location","city","timezone"}:
+            return "Supported profile keys are name, location, city and timezone."
+        if key.strip().lower() == "timezone":
+            match = re.fullmatch(r"(?:UTC)?([+-]?\d+(?:\.\d+)?)",value.strip(),re.I)
+            if not match or not -12 <= float(match.group(1)) <= 14:
+                return "Use a fixed UTC offset from -12 to +14."
         tag = f"{self.PROFILE_TAG_PREFIX}{key.strip().lower()}"
         templates = {
             "name": f"my name is {value.strip()}",
@@ -959,12 +996,14 @@ class MemoryTools:
         }
         text = templates.get(key.strip().lower(), f"{key.strip()} is {value.strip()}")
         existing = [m for m in self.store.as_of(subject=self.subject) if tag in m.tags]
+        if existing and existing[0].text == text:
+            return "That profile value is already stored."
         if existing:
             self.store.supersede(existing[0].id, Memory(
                 text=text,
                 subject=self.subject,
                 source="alexa",
-                valid_from=_now().isoformat(timespec="seconds"),
+                valid_from=_now().isoformat(),
                 tags=(tag,),
             ))
             return f"Updated — your {key.strip()} is now {value.strip()}."
@@ -972,7 +1011,7 @@ class MemoryTools:
             text=text,
             subject=self.subject,
             source="alexa",
-            valid_from=_now().isoformat(timespec="seconds"),
+            valid_from=_now().isoformat(),
             tags=(tag,),
         ))
         return f"Got it — I'll remember your {key.strip()} is {value.strip()}."
@@ -1026,7 +1065,7 @@ class MemoryTools:
                 status = "replaced"
                 held = None
             else:
-                status = "current"
+                status = "scheduled" if start and parse_when(start) > _now() else ("expired" if end and parse_when(end) <= _now() else "current")
                 held = None
 
             entries.append(
@@ -1072,7 +1111,7 @@ class MemoryTools:
 
         now = _now()
         tz_offset = self._get_tz_offset()
-        local_now = now + timedelta(hours=tz_offset)
+        local_now = now.astimezone(timezone(timedelta(hours=tz_offset)))
         hour = local_now.hour
         day_name = local_now.strftime("%A")
 
@@ -1083,7 +1122,7 @@ class MemoryTools:
         parts = [f"{opener} It's {_clock(local_now)} on {day_name}."]
 
         # Open facts count
-        live = self.store.live(subject=self.subject)
+        live = [m for m in self.store.live(subject=self.subject) if m.kind is not Kind.EVENT]
         open_facts = [m for m in live if "open" in m.tags]
         if open_facts:
             parts.append(f"You have {_plural(len(open_facts), 'open item')} still pending.")
@@ -1096,7 +1135,7 @@ class MemoryTools:
             if m.valid_until:
                 try:
                     exp = _pt(m.valid_until)
-                    local_exp = exp + timedelta(hours=tz_offset)
+                    local_exp = exp.astimezone(timezone(timedelta(hours=tz_offset)))
                     if local_exp.date() == local_now.date():
                         expiring_today.append(m.text[:40])
                 except ValueError:
@@ -1115,10 +1154,11 @@ class MemoryTools:
         from core.store import parse_time as _pt2
         recent = [
             m for m in self.store.all()
-            if not self.store.retraction(m.id)
+            if m.kind is not Kind.EVENT
+            and not self.store.retraction(m.id)
             and not self.store.superseded_by(m.id)
             and m.subject == self.subject
-            and _pt2(m.asserted_at) >= cutoff
+            and cutoff <= _pt2(m.asserted_at) <= now
             and not any(t.startswith("list:") or t.startswith("profile:") for t in m.tags)
         ]
         if recent:
@@ -1129,11 +1169,11 @@ class MemoryTools:
         # Shared messages waiting
         shared = [
             m for m in live
-            if any(t.startswith("shared_by:") for t in m.tags)
+            if any(t.startswith(self.SHARED_TAG_PREFIX) for t in m.tags)
         ]
         if shared:
             senders = list({
-                next((t[len("shared_by:"):] for t in m.tags if t.startswith("shared_by:")), "someone")
+                next((t[len(self.SHARED_TAG_PREFIX):] for t in m.tags if t.startswith(self.SHARED_TAG_PREFIX)), "someone")
                 for m in shared
             })
             parts.append(
@@ -1162,3 +1202,52 @@ class MemoryTools:
         return " ".join(parts)
 
     # -- End Feature 3 -------------------------------------------------------
+
+
+_tool_slots = threading.BoundedSemaphore(8)
+_tool_arrivals = []
+_tool_rate_lock = threading.Lock()
+
+
+def _typed(value, annotation):
+    origin = get_origin(annotation)
+    if origin in (Union, types.UnionType):
+        return any(_typed(value,a) for a in get_args(annotation))
+    if origin is list:
+        return isinstance(value,list) and all(_typed(v,get_args(annotation)[0]) for v in value)
+    if annotation is type(None): return value is None
+    return type(value) is annotation
+
+
+def _safe_tool(fn):
+    """One transaction lock for direct, MCP, Telegram and reset operations."""
+    signature = inspect.signature(fn)
+    hints = get_type_hints(fn)
+    @wraps(fn)
+    def guarded(self, *args, **kwargs):
+        bound = signature.bind(self,*args,**kwargs)
+        for key,value in bound.arguments.items():
+            if key == 'self': continue
+            if key in hints and not _typed(value,hints[key]): raise ValueError('invalid tool argument type')
+            if isinstance(value,str) and len(value)>2000: raise ValueError('tool text too long')
+            if key == 'tags' and value is not None and (not isinstance(value,list) or len(value)>32 or any(not isinstance(t,str) or not t.strip() or len(t)>128 for t in value)): raise ValueError('invalid tags')
+        import time
+        now = time.monotonic()
+        with _tool_rate_lock:
+            _tool_arrivals[:] = [a for a in _tool_arrivals if a > now-60]
+            if len(_tool_arrivals) >= 600: raise ValueError('tool rate limit reached')
+            _tool_arrivals.append(now)
+        if not _tool_slots.acquire(blocking=False): raise ValueError('tool concurrency limit reached')
+        try:
+            with self.store.lock:
+                try:
+                    return fn(self,*args,**kwargs)
+                except (ValueError,TypeError,KeyError,OverflowError):
+                    raise ValueError('unable to process tool arguments') from None
+        finally:
+            _tool_slots.release()
+    return guarded
+
+
+for _name in ('catch_me_up','remember','remember_for','correct','forget','recall','what_changed','share','shared_with_me','wrong_about','what_moved','what_time_is_it','add_to_list','get_list','remove_from_list','track','my_projects','set_profile','timeline','daily_brief'):
+    setattr(MemoryTools,_name,_safe_tool(getattr(MemoryTools,_name)))

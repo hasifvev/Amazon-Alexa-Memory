@@ -72,16 +72,11 @@ def seed(store: MemoryStore, *, now: datetime | None = None) -> MemoryStore:
     return store
 
 
-def reset(path) -> MemoryStore:
-    """Wipe and reseed. Used by the demo's reset button only.
-
-    Deleting the log is not something the library does — the whole design is
-    append-only. It is a demo affordance, kept here rather than in the store so
-    that nobody mistakes it for part of the memory model.
-    """
-    from pathlib import Path
-
-    p = Path(path)
-    if p.exists():
-        p.unlink()
-    return seed(MemoryStore(p))
+def reset(store: MemoryStore) -> MemoryStore:
+    """Explicit demo-only reset; retain holder, writer lease and archive."""
+    import os
+    if os.environ.get('MEMORY_DEMO') != '1':
+        raise RuntimeError('demo reset disabled')
+    with store.lock:
+        store.archive_reset()
+        return seed(store)

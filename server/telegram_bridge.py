@@ -48,88 +48,62 @@ async def send_telegram_message(token: str, chat_id: int | str, text: str) -> No
         data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
         try:
             urllib.request.urlopen(url, data, timeout=10)
-        except Exception as e:
-            log.warning("Telegram send failed (urllib): %s", e)
-    except Exception as e:
-        log.warning("Telegram send failed: %s", e)
+        except Exception:
+            log.warning("Telegram send failed")
+    except Exception:
+        log.warning("Telegram send failed")
 
 
-def extract_update(body: dict) -> tuple[int | None, str | None, str | None]:
-    """Extract (chat_id, user_text, username) from a Telegram update dict."""
-    msg = body.get("message") or body.get("edited_message")
-    if not msg:
-        return None, None, None
-    chat_id = msg.get("chat", {}).get("id")
-    text = msg.get("text", "").strip()
-    username = (
-        msg.get("from", {}).get("username")
-        or msg.get("from", {}).get("first_name")
-        or "telegram_user"
-    )
-    return chat_id, text or None, username
+class TelegramBridge:
+    """Authenticated at the transport; private numeric identities only.
 
-
-async def handle_telegram_update(body: dict, tools_factory) -> str:
-    """Process one Telegram update and return the spoken reply.
-
-    ``tools_factory`` is a callable that accepts a subject name and returns
-    a MemoryTools instance scoped to that subject — same pattern as
-    ``MemoryTools.for_subject()`` in the main server.
+    At-most-once within this process. Restart clears the bounded replay cache.
+    Sending failure is not retried because that could duplicate stored effects.
     """
-    chat_id, text, username = extract_update(body)
-    if not chat_id or not text:
-        return "ok"
+    def __init__(self, tools_factory):
+        from collections import OrderedDict
+        self.tools_factory = tools_factory
+        self.seen = OrderedDict()
+        self.high_water = -1
 
-    # Use telegram username as the memory subject so each user gets their own
-    # memory namespace, separate from the household default.
-    subject = f"tg:{username}".lower()[:32]
+    def configured(self):
+        return bool(get_bot_token() and os.environ.get('TELEGRAM_WEBHOOK_SECRET'))
 
-    # Route via LLM (same pipeline as /api/chat)
-    from server.llm_router import route_with_llm
-    route = route_with_llm(text, who=subject)
-
-    if route is None:
-        # LLM unavailable — use a simple fallback
-        reply = "I'm having trouble connecting to my routing brain. Try again in a moment."
-    else:
-        tool_name = route["tool"]
-        tool_args = route.get("args", {})
-        t = tools_factory(subject)
-
+    async def handle(self, body):
+        from server.safety import text
+        import re
+        if not self.configured(): raise ValueError()
+        update = body.get('update_id')
+        if type(update) is not int or update < 0: raise ValueError()
+        msg = body.get('message')
+        if msg is None: return 'ignored'
+        if not isinstance(msg,dict): raise ValueError()
+        chat, sender = msg.get('chat'), msg.get('from')
+        if not isinstance(chat,dict) or not isinstance(sender,dict): raise ValueError()
+        if chat.get('type') != 'private': return 'ignored'
+        if type(sender.get('id')) is not int or sender['id'] <= 0 or type(chat.get('id')) is not int or chat['id'] != sender['id']: raise ValueError()
+        value = text(msg.get('text'))
+        if update in self.seen or update <= self.high_water - 4096: return 'duplicate'
+        self.seen[update] = True
+        self.high_water = max(self.high_water, update)
+        if len(self.seen)>4096: self.seen.popitem(last=False)
+        scoped = self.tools_factory(f"tg:{sender['id']}")
+        reply = "Try 'remember that ...', 'recall ...', or 'shopping list'."
         try:
-            tool_map = {
-                "catch_me_up": lambda a: t.catch_me_up(named=a.get("full", False)),
-                "remember": lambda a: t.remember(a.get("fact", "")),
-                "remember_for": lambda a: t.remember_for(a.get("fact", ""), a.get("until", "")),
-                "recall": lambda a: t.recall(a.get("about", ""), a.get("when")),
-                "correct": lambda a: t.correct(a.get("about", ""), a.get("new_fact", "")),
-                "forget": lambda a: t.forget(a.get("about", ""), a.get("reason", "you told me it was wrong")),
-                "what_changed": lambda a: t.what_changed(a.get("since", "14 days ago")),
-                "wrong_about": lambda a: t.wrong_about(),
-                "what_moved": lambda a: t.what_moved(),
-                "share": lambda a: t.share(a.get("fact", ""), a.get("with_who", "")),
-                "shared_with_me": lambda a: t.shared_with_me(),
-                "timeline": lambda a: t.timeline(a.get("about", "")).spoken,
-                "what_time_is_it": lambda a: t.what_time_is_it(),
-                "add_to_list": lambda a: t.add_to_list(a.get("item", ""), a.get("list_name", "shopping")),
-                "get_list": lambda a: t.get_list(a.get("list_name", "shopping")),
-                "remove_from_list": lambda a: t.remove_from_list(a.get("item", ""), a.get("list_name", "shopping")),
-                "track": lambda a: t.track(a.get("project", ""), a.get("status", ""), a.get("note", "")),
-                "my_projects": lambda a: t.my_projects(),
-                "set_profile": lambda a: t.set_profile(a.get("key", ""), a.get("value", "")),
-                "daily_brief": lambda a: t.daily_brief(),
-            }
-            fn = tool_map.get(tool_name)
-            reply = fn(tool_args) if fn else f"Unknown tool: {tool_name}"
-            if hasattr(reply, "spoken"):
-                reply = str(reply.spoken)
-        except Exception as e:
-            reply = f"Something went wrong: {e}"
-            log.exception("Telegram tool dispatch error")
-
-    # Send the reply back to Telegram
-    token = get_bot_token()
-    if token:
-        await send_telegram_message(token, chat_id, str(reply))
-
-    return str(reply)
+            for pattern, tool, key in [
+                (r'remember(?: that)? (.+)','remember','fact'),
+                (r'(?:add|buy) (.+)','add_to_list','item'),
+                (r'(?:forget|withdraw) (.+)','forget','about'),
+                (r'(?:recall|tell me about) (.+)','recall','about')]:
+                match = re.fullmatch(pattern,value,re.I)
+                if match:
+                    reply = getattr(scoped,tool)(**{key:match.group(1)})
+                    break
+            else:
+                if value.lower() in ('hi','hello','/start','catch me up'): reply = scoped.catch_me_up()
+                elif value.lower() in ('daily brief','brief me'): reply = scoped.daily_brief()
+                elif value.lower() in ('shopping list','my list'): reply = scoped.get_list()
+        except Exception:
+            reply = 'Unable to process this request.'
+        await send_telegram_message(get_bot_token(),chat['id'],str(reply))
+        return str(reply)
