@@ -1,0 +1,734 @@
+{
+  "scope": "Targeted intent selection, not statistical accuracy; contextual cases need safe clarification",
+  "total": 60,
+  "expected_tool_matches": 47,
+  "cases": [
+    {
+      "phrase": "catch me up",
+      "expected": "catch_me_up",
+      "actual": {
+        "tool": "catch_me_up",
+        "args": {
+          "full": false,
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "daily brief",
+      "expected": "daily_brief",
+      "actual": {
+        "tool": "daily_brief",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what time is it",
+      "expected": "what_time_is_it",
+      "actual": {
+        "tool": "what_time_is_it",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what has changed lately",
+      "expected": "what_changed",
+      "actual": {
+        "tool": "what_changed",
+        "args": {
+          "since": "14 days ago",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what have I been wrong about",
+      "expected": "wrong_about",
+      "actual": {
+        "tool": "wrong_about",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "my name is TestPerson",
+      "expected": "set_profile",
+      "actual": {
+        "tool": "set_profile",
+        "args": {
+          "key": "name",
+          "value": "TestPerson",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "I live in Kuala Lumpur",
+      "expected": "set_profile",
+      "actual": {
+        "tool": "set_profile",
+        "args": {
+          "key": "location",
+          "value": "Kuala Lumpur",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "my timezone is UTC+8",
+      "expected": "set_profile",
+      "actual": {
+        "tool": "set_profile",
+        "args": {
+          "key": "timezone",
+          "value": "UTC+8",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "call me TestPerson",
+      "expected": "set_profile",
+      "actual": {
+        "tool": "set_profile",
+        "args": {
+          "key": "name",
+          "value": "TestPerson",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "add milk to my shopping list",
+      "expected": "add_to_list",
+      "actual": {
+        "tool": "add_to_list",
+        "args": {
+          "item": "milk",
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what is on my shopping list",
+      "expected": "get_list",
+      "actual": {
+        "tool": "get_list",
+        "args": {
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "remove milk from shopping list",
+      "expected": "remove_from_list",
+      "actual": {
+        "tool": "remove_from_list",
+        "args": {
+          "item": "milk",
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "I got the eggs",
+      "expected": "remove_from_list",
+      "actual": {
+        "tool": "remove_from_list",
+        "args": {
+          "item": "eggs",
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "track Amazon Hackathon as building",
+      "expected": "track",
+      "actual": {
+        "tool": "track",
+        "args": {
+          "project": "Amazon Hackathon",
+          "status": "building",
+          "note": "",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what am I working on",
+      "expected": "my_projects",
+      "actual": {
+        "tool": "my_projects",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "remember to buy milk just for today",
+      "expected": "remember_for",
+      "actual": {
+        "tool": "remember_for",
+        "args": {
+          "fact": "to buy milk",
+          "until": "today",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "note dentist is at 3pm until Friday",
+      "expected": "remember_for",
+      "actual": {
+        "tool": "remember_for",
+        "args": {
+          "fact": "dentist is at 3pm",
+          "until": "Friday",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "tell Aisyah the new wifi is Guest2026",
+      "expected": "share",
+      "actual": {
+        "tool": "share",
+        "args": {
+          "fact": "the new wifi is Guest2026",
+          "with_who": "Aisyah",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "let Hasif know dinner is at seven",
+      "expected": "share",
+      "actual": {
+        "tool": "share",
+        "args": {
+          "fact": "dinner is at seven",
+          "with_who": "Hasif",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what has been shared with me",
+      "expected": "shared_with_me",
+      "actual": {
+        "tool": "shared_with_me",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "show me the history of standup",
+      "expected": "timeline",
+      "actual": {
+        "tool": "timeline",
+        "args": {
+          "about": "standup",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what has moved over time",
+      "expected": "what_moved",
+      "actual": {
+        "tool": "what_moved",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what was standup 100 days ago",
+      "expected": "recall",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "standup",
+          "when": "100 days ago",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what is standup",
+      "expected": "recall",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "standup",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "change standup to eleven",
+      "expected": "correct",
+      "actual": {
+        "tool": "correct",
+        "args": {
+          "about": "standup",
+          "new_fact": "standup is eleven",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "forget standup",
+      "expected": "forget",
+      "actual": {
+        "tool": "forget",
+        "args": {
+          "about": "standup",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "remember the marker is AlphaCase",
+      "expected": "remember",
+      "actual": {
+        "tool": "remember",
+        "args": {
+          "fact": "the marker is AlphaCase",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "good morning",
+      "expected": "catch_me_up",
+      "actual": {
+        "tool": "catch_me_up",
+        "args": {
+          "full": false,
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "give me my brief",
+      "expected": "daily_brief",
+      "actual": {
+        "tool": "daily_brief",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "brief me",
+      "expected": "daily_brief",
+      "actual": {
+        "tool": "catch_me_up",
+        "args": {
+          "full": false,
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "give me the full picture",
+      "expected": "daily_brief",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "give me the full picture",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "what is my morning summary",
+      "expected": "daily_brief",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "morning summary",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "what did I miss",
+      "expected": "catch_me_up",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "did I miss",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "standup moved to ten",
+      "expected": "correct",
+      "actual": {
+        "tool": "track",
+        "args": {
+          "project": "standup",
+          "status": "ten",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "it is eleven now",
+      "expected": "correct",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "it is eleven now",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "I was mistaken about standup",
+      "expected": "forget",
+      "actual": {
+        "tool": "wrong_about",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "what did I get wrong",
+      "expected": "wrong_about",
+      "actual": {
+        "tool": "wrong_about",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "which facts have the longest history",
+      "expected": "what_moved",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "which facts have the longest history",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "read my packing list",
+      "expected": "get_list",
+      "actual": {
+        "tool": "get_list",
+        "args": {
+          "list_name": "packing",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "put eggs on the grocery list",
+      "expected": "add_to_list",
+      "actual": {
+        "tool": "add_to_list",
+        "args": {
+          "item": "eggs",
+          "list_name": "grocery",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "cross off bread",
+      "expected": "remove_from_list",
+      "actual": {
+        "tool": "remove_from_list",
+        "args": {
+          "item": "bread",
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "update Amazon project to submitted",
+      "expected": "track",
+      "actual": {
+        "tool": "correct",
+        "args": {
+          "about": "Amazon project",
+          "new_fact": "Amazon project is submitted",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "log that EduPlay is in planning",
+      "expected": "track",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "log that EduPlay is in planning",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "what goals am I tracking",
+      "expected": "my_projects",
+      "actual": {
+        "tool": "my_projects",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what is today's date",
+      "expected": "what_time_is_it",
+      "actual": {
+        "tool": "what_time_is_it",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what did someone leave for me",
+      "expected": "shared_with_me",
+      "actual": {
+        "tool": "shared_with_me",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "don't let me forget the marker is CaseValue",
+      "expected": "remember",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "don't let me forget the marker is CaseValue",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "remind me about the dentist for the next 2 days",
+      "expected": "remember_for",
+      "actual": {
+        "tool": "remember_for",
+        "args": {
+          "fact": "about the dentist",
+          "until": "2 days",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what have I believed about standup",
+      "expected": "timeline",
+      "actual": {
+        "tool": "timeline",
+        "args": {
+          "about": "standup",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "is it Friday yet",
+      "expected": "what_time_is_it",
+      "actual": {
+        "tool": "what_time_is_it",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "please add Milk to my shopping list",
+      "expected": "add_to_list",
+      "actual": {
+        "tool": "add_to_list",
+        "args": {
+          "item": "Milk",
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "can you remember that marker is AlphaCase",
+      "expected": "remember",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "can you remember that marker is AlphaCase",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "what is my name",
+      "expected": "recall",
+      "actual": {
+        "tool": "set_profile",
+        "args": {
+          "key": "name",
+          "value": "what",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "what is my timezone",
+      "expected": "recall",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "timezone",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "where do I live",
+      "expected": "recall",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "I live",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what is my location",
+      "expected": "recall",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "location",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "can you tell me my name",
+      "expected": "recall",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "me my name",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what is standup time",
+      "expected": "recall",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "standup time",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "show my projects",
+      "expected": "my_projects",
+      "actual": {
+        "tool": "my_projects",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what did Hasif share with me",
+      "expected": "shared_with_me",
+      "actual": {
+        "tool": "shared_with_me",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    }
+  ]
+}

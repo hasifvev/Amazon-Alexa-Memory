@@ -274,3 +274,13 @@ of it. Given that half the current Echo line-up has a display, a worked example
 **Suggestion:** an MCP Apps example in the Alexa+ docs, and a note in the SDK's
 structured-output error pointing at the extension, since that is the most
 likely reason someone hits it.
+
+## Completion verification clarification — 2026-10-08
+
+Earlier entries are preserved as build-history feedback, not current certification or device evidence. This project is a synthetic simulated Alexa presentation; no Echo/device integration, OAuth certification, or real microphone check was performed during closure.
+
+A fresh unbounded installation selected MCP2 and failed because FastMCP was renamed. Pinning MCP1.29 restored the API. Dependency audit then found advisories in Starlette0.52; Starlette1.7 passed an actual SDK handshake and full browser/server integration with no known installed-dependency advisories. Suggestion: compatibility examples should state version bounds and run a clean-install job.
+
+The local timeline originally missed its initialized notification, and chat success bypassed MCP tool calls. Browser regression tests exposed both. The simulator now reads the real resource, completes the sandbox handshake, and uses tools/call for selected tools on every routing path. A conforming browser demonstration is stronger evidence than metadata alone.
+
+Official rules checked October8 allow private repository judge-sharing for the primary track and explicitly allow the simulated experience alternative. Deadline is October23 noonPacific. Earlier requirements/certification-readiness statements must not override these current boundaries.

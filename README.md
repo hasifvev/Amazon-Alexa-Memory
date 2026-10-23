@@ -1,298 +1,127 @@
-# Memory — an Alexa+ add-on that knows when things changed
+# Memory — history-aware memory, simulated Alexa+ presentation
 
-**Track: Alexa+** · Build, Ship, Shape: Amazon Developer Hackathon
+**Alexa+ track · Build, Ship, Shape: Amazon Developer Hackathon · MIT**
 
-Alexa+ already remembers things. Ask it to remember your frequent flyer number
-and it will; tell it your son's shoe size has changed and it will update it.
+A genuine Streamable HTTP MCP server with a browser-based simulated Alexa+ experience. It distinguishes an answer that **changed** from a belief that was **wrong**, answers historical questions, and shows a visual timeline.
 
-What it does not appear to have is a **past tense**. There is no documented way
-to ask what a fact used to be, when it changed, or whether it changed because
-the world moved on or because you were wrong the first time. A note has one
-current value.
+**Synthetic demo only. Not an Amazon-certified add-on or tested Echo integration. Speaker selection is not authentication. Do not enter personal information into a publicly shared instance.**
 
-This add-on supplies that. It is memory with a history.
+## Run locally
 
-```
-  "What time is standup?"
-      Standup is at ten thirty. That changed on 8 July — before, standup was at nine.
-
-  "What was it back in June?"
-      As of 15 June 2026, standup is at nine.
-
-  "When does the office close?"
-      I did think the office closes at six, but I withdrew that — you told me it
-      is actually seven. So I don't know.
-
-  "What about the spare key, back in March?"
-      I didn't know anything about the spare key on 1 March 2026. I only learned
-      about it later.
-
-  "What have I been wrong about?"
-      You've withdrawn one thing. The longest-standing: the office closes at six —
-      you believed that for 145 days, until you told me it is actually seven.
-```
-
-And when you ask something you asked before, whose answer has moved since:
-
-```
-  "What time is standup?"
-      Standup is at ten thirty. That changed on 8 July — before, standup was at
-      nine. You asked me this on 11 April too — back then, standup was at nine.
-```
-
-That 145-day figure is unavailable to any memory system that deletes what it
-retracts: the evidence of having been wrong is the first thing such a system
-destroys. Keeping withdrawn beliefs makes the duration simple arithmetic.
-
-That last answer is the one worth pausing on. Admitting a gap is the behaviour
-that separates this from an assistant which would confidently answer a March
-question with a fact it learned in July.
-
-## Two clocks, not one
-
-Every memory sits on two independent timelines:
-
-| | Meaning |
-|---|---|
-| **valid time** | when the **world** matched this memory |
-| **belief time** | when **we** held it to be true |
-
-That distinction produces two different operations, and conflating them is the
-bug that makes most memory systems answer historical questions wrongly:
-
-- **`correct`** — the answer *changed*. Closes the old value's valid window. We
-  still believe the old value: it was true then, and it still answers questions
-  about then.
-- **`forget`** — it was *never* true. Ends belief. The record survives, so the
-  assistant can tell you it used to think so, but it never answers as fact again.
-
-Nothing is ever deleted. The log is append-only, and every write is fsynced.
-
-## The time of day changes what you hear
-
-Not the tone — the content and the volume.
-
-| | leads with | items | 
-|---|---|---|
-| morning | what moved overnight, then what's open | 4 |
-| afternoon | what's true now; changes are less urgent mid-flow | 3 |
-| evening | what moved today, then what's unresolved | 3 |
-| night | what moved. **Open items are dropped entirely** | 2 |
-
-Handing somebody a list of open tasks at midnight is complete rather than
-useful, so that section is omitted by choice, not shortened by budget pressure.
-
-Changes are also ranked by how much they should disturb you: a withdrawal (you
-have been acting on something false) outranks an answer moving, which outranks a
-new fact. That only becomes visible when the list is tight — which is exactly
-when it matters.
-
-## On a screen, it draws the timeline
-
-Half the current Echo line-up has a display — Show 8 and Show 11 — and a belief
-history is a fundamentally visual thing: a sequence with a shape. Reading six
-dates aloud is a worse version of showing them.
-
-So `timeline` is an **MCP App** ([SEP-1865](https://github.com/modelcontextprotocol/ext-apps),
-spec `2026-01-26`, the first official MCP extension): a `ui://` resource whose
-HTML the host renders in a sandboxed iframe, linked from the tool through
-`_meta.ui.resourceUri`, communicating back over JSON-RPC on `postMessage`.
-
-```
-  the deploy root is the app folder        [replaced]   Feb 2026 → May 2026
-  the deploy root is the web folder        [replaced]   May 2026 → Aug 2026
-  the deploy root is the projects folder   [now]        Aug 2026 →
-```
-
-The same tool returns a spoken line, so one implementation serves a screen and
-a speaker. The view declares **no CSP domains at all** — a timeline of somebody's
-private memory has no business making network requests, and declaring nothing
-means the host blocks everything.
-
-## An Echo is a shared device
-
-It sits in a kitchen, not on one person's desk. Alexa+ knows who is speaking,
-so every tool takes `who`, and each person's memory is separate:
-
-```
-  hasif:  "What time is standup?"  →  My standup is at ten.
-  aisyah: "What time is standup?"  →  My standup is at eight.
-```
-
-## Run it
+Python 3.11 or later. Verified here on Windows/Python 3.14.7; other runtime/OS combinations require their own checks. Use one process and one worker.
 
 ```bash
-pip install -r requirements.txt
+python -m venv .venv
+# Windows Git Bash:
+source .venv/Scripts/activate
+# Linux/macOS: source .venv/bin/activate
+python -m pip install -r requirements.txt
+export MEMORY_STORE=data/synthetic-demo.jsonl
+export MEMORY_DEMO=1
+export MEMORY_BEDROCK=0
 python -m server.app
-# open http://127.0.0.1:8000
 ```
 
-The page seeds a demo memory with a real history — a fact that changed, a chain
-that changed twice, a belief that was withdrawn, and a gap where nothing was
-known yet. Without a past there is nothing to demonstrate.
+Open http://127.0.0.1:8000. `MEMORY_DEMO=1` explicitly seeds invented history and enables an archive-and-reset button. Without it, no history is seeded and reset is refused. `MEMORY_STORE` must be a dedicated disposable demo path, never a personal log.
+
+MCP 1.30.0 is pinned (it fixes the unbounded stateful-session advisory in 1.29.0, and SDK2 renamed FastMCP). certifi 2026.10.19 and Starlette 1.7.0 are pinned after dependency audit; compatibility and actual server/browser journeys were exercised. Install dev requirements for tests/benchmark:
 
 ```bash
-python -m pytest -q          # 42 tests
+python -m pip install -r requirements-dev.txt
+python -m playwright install chromium
+python -m pytest -q
+python -m compileall -q core server tests scripts
+python -m pip check
+python -m pip_audit
+python scripts/benchmark_mcp.py
 ```
 
-## The MCP server is real
+## Try it
 
-This is a genuine MCP server on the [official Python SDK](https://github.com/modelcontextprotocol/python-sdk),
-implementing **Streamable HTTP, spec `2025-11-25`** — the transport Alexa+
-requires. It is imported and called in [`server/app.py`](server/app.py):
+- “what is standup” — current value with previous value/change date.
+- “what was standup 100 days ago” — old value, not today's value.
+- “show me the history of standup” — actual MCP resource read and sandboxed timeline.
+- “what have I been wrong about” — withdrawn beliefs and duration.
+- “change standup to eleven” — keep the old valid window.
+- “forget standup” — withdraw belief, retain the record.
+- “add oat milk to my shopping list”, then “add milk to my shopping list” — distinct items.
+- “remember the visitor code is DemoCase until tomorrow” — subject-local expiry.
+- “tell Aisyah dinner is at seven”, switch speaker, “daily brief”.
 
-```python
-from mcp.server.fastmcp import FastMCP
-from mcp.server.transport_security import TransportSecuritySettings
+All preseeded names/values are invented. Historical dates move relative to seed time. Fixed-date transcripts are illustrative, not a claimed current output.
 
-mcp = FastMCP(name="Memory", streamable_http_path="/mcp", ...)
+## Real execution path
 
-@mcp.tool(description="Recall what is or was true about something...")
-def recall(about: str, when: str | None = None) -> str:
-    return tools.recall(about, when)
+```text
+browser text / optional microphone
+ -> /api/chat (selection only; inference off by default)
+ -> validated selection or local grammar
+ -> MCP initialize / tools/call at /mcp
+ -> deterministic MemoryTools -> fsynced append-only log
+ -> spoken text + resources/read -> sandboxed timeline
 ```
 
-Seventeen tools are published: `catch_me_up`, `remember`, `remember_for`,
-`recall`, `correct`, `forget`, `what_changed`, `wrong_about`, `what_moved`,
-`share`, `shared_with_me`, `timeline`, `add_to_list`, `get_list`,
-`remove_from_list`, `track`, `my_projects`, `set_profile`, **`daily_brief`**.
+The protocol panel shows real MCP requests/responses. Routing time and MCP tool time are measured separately. No assertion that the simulation is identical to Alexa's internals.
 
-**Tool descriptions are the routing surface, not documentation.** Alexa+ picks
-which tool to invoke from these strings, so each one names the phrasings people
-actually use — "what was it back in June", "that's wrong, forget it" — rather
-than describing the function to a human reader.
+The server exposes **20 tools**: catch_me_up, remember, recall, correct, forget, what_changed, wrong_about, remember_for, share, shared_with_me, what_moved, timeline, what_time_is_it, add_to_list, get_list, remove_from_list, track, daily_brief, my_projects, set_profile. `timeline` advertises `ui://memory/timeline` and returns structured data plus spoken text.
 
-**Conformance is tested, not asserted** — see
-[`tests/test_transport.py`](tests/test_transport.py):
+## Memory semantics and integrity
 
-| Spec requirement | Test |
+- Valid time: when a fact described the world. Belief time: when it was believed.
+- Correction closes the earlier value's valid window; withdrawal ends belief without erasing history.
+- Correction preserves ephemeral expiry; effective validity uses the earliest deadline/changeover.
+- Single-writer OS lease plus in-process RLock prevents competing projections/branching.
+- Torn-tail recovery archives the damaged log before repairing the append boundary.
+- Demo reset archives the old log and reseeds the same shared holder; auxiliary APIs agree with MCP afterward.
+- Current snapshot import/export intentionally **does not preserve correction/retraction event history**. Copy/archive the complete log while the process is stopped for history backup.
+
+## Auxiliary endpoints
+
+| Endpoint | Contract |
 |---|---|
-| MUST validate `Origin`, MUST answer 403 | `test_an_invalid_origin_is_refused_with_403` |
-| Session id on initialize, visible ASCII | `test_initialize_returns_a_session_id` |
-| Client MUST accept json **and** event-stream | `test_a_request_missing_both_accept_types_is_refused` |
-| Session-less GET refused | `test_a_get_without_a_session_is_refused` |
-| Tools reachable over the wire | `test_the_memory_tools_are_advertised` |
+| POST /api/chat | Routing selection only; never mutates/executes a tool |
+| GET /api/reminders?hours=24&who=default | Current expiring facts; hours0–720, finite |
+| GET /api/stats?who=default | Temporally correct selected-subject counts |
+| GET /dashboard?who=default | Selected-subject dashboard |
+| GET /api/export?fmt=json&who=default | Version1 current snapshot; `fmt=md` readable snapshot |
+| POST /api/import?who=default | Complete validation before writes, <=200 records,128KiB body, selected subject only |
+| POST /api/seed | Explicit synthetic-demo archive/reset only |
+| GET/POST /api/webhook/telegram | Optional bridge status/authenticated webhook |
 
-DNS rebinding protection is **on**, with an origin allowlist defaulting to
-localhost. The spec requires it, and for a server whose entire contents are
-things somebody told it in private, defaulting to permissive would be a real
-hole rather than a pedantic one.
+Missing subject defaults to `default`, never every household member. Export/import is idempotent for identical IDs and refuses conflicts. A disk failure partway through import is not rollback-atomic.
 
-## The simulated experience is not a mock
+## Safety and limitations
 
-Amazon permits a simulated Alexa+ experience in place of a certified add-on. The
-page at `/` is that simulation — and it is a real **MCP client**. Every reply is
-an actual `tools/call` over the same `/mcp` endpoint a device would use,
-including the `initialize` handshake, session header and SSE parsing. The
-protocol pane shows the live JSON-RPC traffic.
+Host/Origin allowlists protect MCP and custom routes. Bodies are capped128KiB, input text2,000characters, requests/rate/concurrency bounded. Default host/origin is localhost; use exact `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` when changing origin/port (see [deployment runbook](docs/deployment-runbook.md)). Missing Origin is allowed for native clients; it is not authentication.
 
-We built the certifiable server rather than a chat window that pretends. A
-certified add-on additionally needs OAuth 2.1 with PKCE, Protected Resource
-Metadata, six icon sizes, a carousel image, a privacy policy and terms URL, and
-Amazon's certification review — a queue outside our control. The server is ready
-for it; the submission does not depend on it.
+The public demo is shared synthetic state, not private household storage. OAuth identity/authorization, certified Alexa onboarding, distributed/multiworker storage and production retention policy are out of scope. A network-exposed deployment additionally requires HTTPS, operational monitoring and explicit approval.
 
-## Speed, and why it is achievable
+**Bedrock:** optional `MEMORY_BEDROCK=1`, off by default. Nova Micro/Haiku route text; no inference occurs in MCP tool execution. Enabling sends entered text to AWS and can incur charges. Capacity is bounded, not a monetary spend cap. Real provider calls were not exercised in this completion pass; mocks verify handling only.
 
-Alexa+ requires a round trip under **500 ms**. Measured over the wire:
-**2.4–7.6 ms** per tool call.
+**Voice:** optional browser SpeechRecognition. Unsupported browsers and permission denial retain typing. Real microphone/transcription quality and external speech-service privacy were not verified here.
 
-That headroom exists because **no language model is called on this path.** Every
-answer is assembled deterministically from stored state. A wake is bounded work
-by construction: identity is capped, each section is capped, and the whole
-briefing has a token ceiling, so the assistant does not get slower every day it
-is used.
+**Telegram:** disabled without both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET`. Register webhook with Telegram's `secret_token`; transport verifies `X-Telegram-Bot-Api-Secret-Token` before reading its body. Private chats use stable numeric `tg:<sender_id>` identities. Offline grammar covers remember/recall/withdraw/list/brief; not full browser intent parity. Replay cache is process-local and resets on restart. Real bot configuration/messages were not exercised. Supply credentials through approved secure runtime tooling, never commit them.
 
-## Architecture
+## Verification status
 
-```
-Amazon-Alexa-Memory/
-├── server/app.py          MCP server, Streamable HTTP, origin validation, all routes
-├── server/tools.py        17 tools and their spoken phrasing
-├── server/llm_router.py   Amazon Bedrock (Nova Micro → Claude Haiku) intent router
-├── server/demo.py         seeded history worth asking questions about
-├── server/telegram_bridge.py  Telegram Bot webhook bridge (Feature 6)
-├── web/index.html         simulated experience — MCP client in the browser
-├── web/dashboard.html     Memory Health Dashboard — live stats panel (Feature 4)
-├── web/timeline.html      MCP App — a ui:// resource rendered on Echo Show
-└── tests/                 42 tests: transport conformance and spoken behaviour
-```
+Verification on 2026-10-23 in a fresh isolated environment built from `requirements.txt` + `requirements-dev.txt`: **140 tests passed** (backend, HTTP-fixture browser and actual localhost server/browser journeys with reset, snapshot import and process restart). `docs/qa/2026-10-21-verification/verify_catalogue.py` passes **24/24** wire scenarios across all 20 MCP tools and **60/60** natural-language routing cases (47/60 before the routing repairs). `pip check` and `pip_audit` report no broken requirements and no known vulnerabilities. The actual journey uses genuine MCP traffic, not mocked responses. Full functional checkback, explicit core/server compile, dependency consistency and audit passed.
 
-The memory engine itself is a separate, reusable package:
-[**Memory-Substrate-Core**](../Memory-Substrate-Core) — bitemporal append-only
-store, tiered wake protocol, **zero third-party dependencies**, 94 tests, and a
-reproducible benchmark against load-everything and recency-only baselines.
+See [QA evidence](docs/qa/2026-10-08-completion.md). Local benchmark covers50 actual localhost `catch_me_up` calls; it is not remote/Echo latency evidence. Benchmark output is reproducible via the command above.
 
-## Where this fits Amazon's platform
+## Layout and submission
 
-Amazon's add-on examples are service integrations that complete a transaction —
-booking a table, buying tickets, calling a plumber. This is a different shape:
-not a service, but **infrastructure other add-ons could stand on**.
+- core/: local, dependency-free memory/wake implementation.
+- server/app.py: official FastMCP registration/application entry point.
+- server/api.py and safety.py: bounded auxiliary routes and transport guards.
+- server/tools.py: deterministic voice-shaped operations.
+- web/: simulated MCP client, dashboard and MCP Apps timeline.
+- tests/: backend, fixture browser and actual localhost journeys.
+- docs/: decisions, QA, handoff, submission text and demo script.
 
-Every add-on that stores anything about a customer faces the same problem this
-solves. A booking add-on that knows your usual table also needs to know when
-"usual" changed. A grocery add-on that learns you avoid shellfish needs to know
-whether that was a preference that shifted or a fact recorded wrongly. Today
-each of them would rebuild a private key-value store and get the temporal part
-wrong in the same way.
+Preserved earlier README: [archive](docs/archive/README-before-completion-2026-10-08.md).
 
-Memory with a past tense is a horizontal capability, and it is the sort of thing
-that is better as one well-tested layer than as fifteen partial ones.
+[Submission draft](docs/submission.md) · [Demo script](docs/demo-script.md) · [Friction log](FRICTION.md) · [Remaining gates](TODO.md).
 
-## Developer feedback
+No live deployment, Git publication, repository visibility change, video upload or Devpost submission was performed by this local completion pass. Official rules checked2026-10-08 permit a simulated Alexa experience; deadline **23October2026 noonPacific**. Primary-track source can be public or shared privately with required judges; final access/video/submission gates remain owner actions.
 
-[FRICTION.md](FRICTION.md) is the friction log kept while building this: nine
-issues hit against the MCP SDK, the Alexa+ documentation and the hackathon
-rules, each with what it cost and a concrete suggestion — plus what worked well,
-since a friction log with no positives is a complaint rather than a report.
-
-The first entry is a reproducible SDK footgun: constructing
-`TransportSecuritySettings()` with its own defaults makes the server answer
-**421 to every request**, while omitting the parameter entirely behaves
-correctly. There is a regression test guarding against it here.
-
-## New in this build
-
-Six features added beyond the core bitemporal engine:
-
-| Feature | What it adds |
-|---|---|
-| 🎙️ **Voice Input** | Mic button in the web UI — click or press **Space** to speak. Uses the browser's built-in Speech Recognition API. No dependencies. |
-| ⏳ **Proactive Reminders** | `GET /api/reminders?hours=N` returns facts expiring in the next N hours. An amber strip appears in the UI when anything is about to expire. This is how a real Alexa skill would trigger unprompted notifications. |
-| 📋 **Daily Brief** | Say **"daily brief"** → Alexa composes one spoken paragraph: greeting by name, local time, open items, memories expiring today, 24-hour changes, shared messages waiting, and active projects. |
-| 📊 **Dashboard** | `/dashboard` — a live memory health panel showing per-user stats, correction rates, expiring-soon counts, and memory health score. Auto-refreshes every 30 seconds. |
-| 📥 **Export / Import** | `GET /api/export` downloads memory as JSON or Markdown. `POST /api/import` merges an exported file back in. Move memory between devices — your memory travels with you. |
-| 🤖 **Telegram Bridge** | `POST /api/webhook/telegram` accepts Telegram Bot API updates. Set `TELEGRAM_BOT_TOKEN` and point `@BotFather` at your server. Each Telegram username gets its own memory namespace, routed through the same LLM pipeline. |
-
-### New endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/reminders` | Facts expiring soon (`?hours=24`, `?who=name`) |
-| `GET` | `/api/stats` | Memory health metrics (JSON) |
-| `GET` | `/dashboard` | Memory Health Dashboard (HTML) |
-| `GET` | `/api/export` | Download memory (`?fmt=json` or `?fmt=md`, `?who=name`) |
-| `POST` | `/api/import` | Merge an exported JSON file into the store |
-| `GET` | `/api/webhook/telegram` | Webhook health check / setup status |
-| `POST` | `/api/webhook/telegram` | Receive Telegram Bot updates |
-
-### Telegram setup
-
-```bash
-# 1. Get a bot token — open Telegram, message @BotFather, send /newbot
-# 2. Set the env var
-export TELEGRAM_BOT_TOKEN=<your-token>
-
-# 3. Start the server
-python -m server.app
-
-# 4. Register your webhook with Telegram
-curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
-     -d "url=https://YOUR_SERVER/api/webhook/telegram"
-
-# 5. Text your bot — it responds using your Alexa memory
-```
-
-## Licence
-
-MIT — see [LICENSE](LICENSE).
+MIT — [LICENSE](LICENSE).

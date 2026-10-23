@@ -1,0 +1,1175 @@
+{
+  "scope": "actual disposable localhost HTTP, no cloud inference/messages",
+  "tools": [
+    {
+      "name": "catch_me_up",
+      "args": {
+        "hour": 8
+      },
+      "isError": false,
+      "spoken": "Good morning! Good to have you back. It's Wednesday, 21 October 2026, 8:00 AM. Since we last spoke, I withdrew that the office closes at six, because you told me it is actually seven, the deploy root is the projects folder, which was the deploy root is the web folder and you told me the Kestrel review is waiting on you, and 1 other change. Still open: the quarterly numbers are still unsigned and the Kestrel review is waiting on you.",
+      "ms": 5.83,
+      "pass": true
+    },
+    {
+      "name": "remember",
+      "args": {
+        "fact": "acceptance marker is AlphaCase"
+      },
+      "isError": false,
+      "spoken": "Got it. I'll remember that acceptance marker is AlphaCase.",
+      "ms": 6.86,
+      "pass": true
+    },
+    {
+      "name": "recall",
+      "args": {
+        "about": "acceptance marker"
+      },
+      "isError": false,
+      "spoken": "Acceptance marker is AlphaCase.",
+      "ms": 6.37,
+      "pass": true
+    },
+    {
+      "name": "correct",
+      "args": {
+        "about": "acceptance marker",
+        "new_fact": "acceptance marker is BetaCase"
+      },
+      "isError": false,
+      "spoken": "Updated. It's now that acceptance marker is BetaCase. I've kept that it was acceptance marker is AlphaCase, until today.",
+      "ms": 6.57,
+      "pass": true
+    },
+    {
+      "name": "recall",
+      "args": {
+        "about": "acceptance marker"
+      },
+      "isError": false,
+      "spoken": "Acceptance marker is BetaCase. That changed on 21 October 2026 \u2014 before, acceptance marker is AlphaCase. You asked me this on 21 October 2026 too \u2014 back then, acceptance marker is AlphaCase.",
+      "ms": 6.56,
+      "pass": true
+    },
+    {
+      "name": "what_changed",
+      "args": {
+        "since": "7 days ago"
+      },
+      "isError": false,
+      "spoken": "I withdrew that the office closes at six, you told me the Kestrel review is waiting on you and acceptance marker is BetaCase, which was acceptance marker is AlphaCase, and 2 other changes.",
+      "ms": 4.8,
+      "pass": true
+    },
+    {
+      "name": "what_moved",
+      "args": {},
+      "isError": false,
+      "spoken": "4 facts changed. The longest-standing: standup is at ten thirty, which was standup is at nine for 178 days, the deploy root is the projects folder, which was the deploy root is the web folder for 111 days and the deploy root is the web folder, which was the deploy root is the app folder for 80 days, and 1 other.",
+      "ms": 3.72,
+      "pass": true
+    },
+    {
+      "name": "timeline",
+      "args": {
+        "about": "acceptance marker"
+      },
+      "isError": false,
+      "spoken": "Acceptance marker is BetaCase. That changed on 21 October 2026 \u2014 before, acceptance marker is AlphaCase. You asked me this on 21 October 2026 too \u2014 back then, acceptance marker is AlphaCase.",
+      "ms": 10.84,
+      "entries": [
+        {
+          "text": "acceptance marker is AlphaCase",
+          "status": "replaced",
+          "starts": "21 October 2026",
+          "ends": "21 October 2026",
+          "held_days": null,
+          "reason": null
+        },
+        {
+          "text": "acceptance marker is BetaCase",
+          "status": "current",
+          "starts": "21 October 2026",
+          "ends": null,
+          "held_days": null,
+          "reason": null
+        }
+      ],
+      "pass": true
+    },
+    {
+      "name": "remember_for",
+      "args": {
+        "fact": "disposable code is TempCase",
+        "until": "tomorrow"
+      },
+      "isError": false,
+      "spoken": "Got it. I'll remember that disposable code is TempCase, until tomorrow.",
+      "ms": 6.43,
+      "pass": true
+    },
+    {
+      "name": "share",
+      "args": {
+        "fact": "acceptance dinner is SevenCase",
+        "with_who": "aisyah"
+      },
+      "isError": false,
+      "spoken": "Done. Aisyah will see that acceptance dinner is SevenCase next time they catch up.",
+      "ms": 6.4,
+      "pass": true
+    },
+    {
+      "name": "shared_with_me",
+      "args": {
+        "who": "aisyah"
+      },
+      "isError": false,
+      "spoken": "Shared with you: acceptance dinner is SevenCase \u2014 from Default.",
+      "ms": 4.08,
+      "pass": true
+    },
+    {
+      "name": "what_time_is_it",
+      "args": {},
+      "isError": false,
+      "spoken": "It's Wednesday, 21 October 2026, 8:18 AM.",
+      "ms": 4.21,
+      "pass": true
+    },
+    {
+      "name": "add_to_list",
+      "args": {
+        "item": "oat milk"
+      },
+      "isError": false,
+      "spoken": "Oat Milk added to your shopping list. 1 item now.",
+      "ms": 5.68,
+      "pass": true
+    },
+    {
+      "name": "add_to_list",
+      "args": {
+        "item": "milk"
+      },
+      "isError": false,
+      "spoken": "Milk added to your shopping list. 2 items now.",
+      "ms": 6.44,
+      "pass": true
+    },
+    {
+      "name": "get_list",
+      "args": {},
+      "isError": false,
+      "spoken": "Your shopping list: oat milk and milk.",
+      "ms": 3.39,
+      "pass": true
+    },
+    {
+      "name": "remove_from_list",
+      "args": {
+        "item": "milk"
+      },
+      "isError": false,
+      "spoken": "Done \u2014 milk off the list. 1 item left.",
+      "ms": 5.58,
+      "pass": true
+    },
+    {
+      "name": "get_list",
+      "args": {},
+      "isError": false,
+      "spoken": "Your shopping list: oat milk.",
+      "ms": 2.96,
+      "pass": true
+    },
+    {
+      "name": "track",
+      "args": {
+        "project": "Acceptance",
+        "status": "building"
+      },
+      "isError": false,
+      "spoken": "Tracking Acceptance as 'building'.",
+      "ms": 6.04,
+      "pass": true
+    },
+    {
+      "name": "my_projects",
+      "args": {},
+      "isError": false,
+      "spoken": "You're tracking: Acceptance: building.",
+      "ms": 3.45,
+      "pass": true
+    },
+    {
+      "name": "set_profile",
+      "args": {
+        "key": "name",
+        "value": "TestPerson"
+      },
+      "isError": false,
+      "spoken": "Got it \u2014 I'll remember your name is TestPerson.",
+      "ms": 5.6,
+      "pass": true
+    },
+    {
+      "name": "daily_brief",
+      "args": {},
+      "isError": false,
+      "spoken": "Good morning, Testperson! It's 8:18 AM on Wednesday. You have 2 open items still pending. 6 new memorys added in the last 24 hours. You're tracking 1 active project. Say 'what am I working on' for details.",
+      "ms": 3.73,
+      "pass": true
+    },
+    {
+      "name": "forget",
+      "args": {
+        "about": "acceptance marker"
+      },
+      "isError": false,
+      "spoken": "Done \u2014 I've withdrawn that. You held that belief for less than a day. I'll still know I used to think it.",
+      "ms": 6.53,
+      "pass": true
+    },
+    {
+      "name": "wrong_about",
+      "args": {},
+      "isError": false,
+      "spoken": "You've withdrawn 3 things. The longest-standing: the office closes at six \u2014 you believed that for 145 days, until you told me it is actually seven and acceptance marker is BetaCase \u2014 you believed that for less than a day, until you told me it was wrong, and 1 other.",
+      "ms": 3.22,
+      "pass": true
+    },
+    {
+      "name": "recall",
+      "args": {
+        "about": "acceptance marker"
+      },
+      "isError": false,
+      "spoken": "I did think acceptance marker is BetaCase, but I withdrew that \u2014 you told me it was wrong. So I don't know.",
+      "ms": 6.14,
+      "pass": true
+    }
+  ],
+  "auxiliary": [
+    {
+      "path": "/api/stats?who=default",
+      "status": 200,
+      "pass": true
+    },
+    {
+      "path": "/api/reminders?who=default",
+      "status": 200,
+      "pass": true
+    },
+    {
+      "path": "/api/export?who=default",
+      "status": 200,
+      "pass": true
+    },
+    {
+      "path": "/api/export?fmt=md&who=default",
+      "status": 200,
+      "pass": true
+    },
+    {
+      "path": "/api/webhook/telegram",
+      "status": 200,
+      "pass": true
+    },
+    {
+      "path": "/dashboard?who=default",
+      "status": 200,
+      "pass": true
+    }
+  ],
+  "routing": [
+    {
+      "phrase": "catch me up",
+      "expected": "catch_me_up",
+      "actual": {
+        "tool": "catch_me_up",
+        "args": {
+          "full": false,
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "daily brief",
+      "expected": "daily_brief",
+      "actual": {
+        "tool": "daily_brief",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what time is it",
+      "expected": "what_time_is_it",
+      "actual": {
+        "tool": "what_time_is_it",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what has changed lately",
+      "expected": "what_changed",
+      "actual": {
+        "tool": "what_changed",
+        "args": {
+          "since": "14 days ago",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what have I been wrong about",
+      "expected": "wrong_about",
+      "actual": {
+        "tool": "wrong_about",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "my name is TestPerson",
+      "expected": "set_profile",
+      "actual": {
+        "tool": "set_profile",
+        "args": {
+          "key": "name",
+          "value": "TestPerson",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "I live in Kuala Lumpur",
+      "expected": "set_profile",
+      "actual": {
+        "tool": "set_profile",
+        "args": {
+          "key": "location",
+          "value": "Kuala Lumpur",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "my timezone is UTC+8",
+      "expected": "set_profile",
+      "actual": {
+        "tool": "set_profile",
+        "args": {
+          "key": "timezone",
+          "value": "UTC+8",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "call me TestPerson",
+      "expected": "set_profile",
+      "actual": {
+        "tool": "set_profile",
+        "args": {
+          "key": "name",
+          "value": "TestPerson",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "add milk to my shopping list",
+      "expected": "add_to_list",
+      "actual": {
+        "tool": "add_to_list",
+        "args": {
+          "item": "milk",
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what is on my shopping list",
+      "expected": "get_list",
+      "actual": {
+        "tool": "get_list",
+        "args": {
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "remove milk from shopping list",
+      "expected": "remove_from_list",
+      "actual": {
+        "tool": "remove_from_list",
+        "args": {
+          "item": "milk",
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "I got the eggs",
+      "expected": "remove_from_list",
+      "actual": {
+        "tool": "remove_from_list",
+        "args": {
+          "item": "eggs",
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "track Amazon Hackathon as building",
+      "expected": "track",
+      "actual": {
+        "tool": "track",
+        "args": {
+          "project": "Amazon Hackathon",
+          "status": "building",
+          "note": "",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what am I working on",
+      "expected": "my_projects",
+      "actual": {
+        "tool": "my_projects",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "remember to buy milk just for today",
+      "expected": "remember_for",
+      "actual": {
+        "tool": "remember_for",
+        "args": {
+          "fact": "to buy milk",
+          "until": "today",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "note dentist is at 3pm until Friday",
+      "expected": "remember_for",
+      "actual": {
+        "tool": "remember_for",
+        "args": {
+          "fact": "dentist is at 3pm",
+          "until": "Friday",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "tell Aisyah the new wifi is Guest2026",
+      "expected": "share",
+      "actual": {
+        "tool": "share",
+        "args": {
+          "fact": "the new wifi is Guest2026",
+          "with_who": "Aisyah",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "let Hasif know dinner is at seven",
+      "expected": "share",
+      "actual": {
+        "tool": "share",
+        "args": {
+          "fact": "dinner is at seven",
+          "with_who": "Hasif",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what has been shared with me",
+      "expected": "shared_with_me",
+      "actual": {
+        "tool": "shared_with_me",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "show me the history of standup",
+      "expected": "timeline",
+      "actual": {
+        "tool": "timeline",
+        "args": {
+          "about": "standup",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what has moved over time",
+      "expected": "what_moved",
+      "actual": {
+        "tool": "what_moved",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what was standup 100 days ago",
+      "expected": "recall",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "standup",
+          "when": "100 days ago",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what is standup",
+      "expected": "recall",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "standup",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "change standup to eleven",
+      "expected": "correct",
+      "actual": {
+        "tool": "correct",
+        "args": {
+          "about": "standup",
+          "new_fact": "standup is eleven",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "forget standup",
+      "expected": "forget",
+      "actual": {
+        "tool": "forget",
+        "args": {
+          "about": "standup",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "remember the marker is AlphaCase",
+      "expected": "remember",
+      "actual": {
+        "tool": "remember",
+        "args": {
+          "fact": "the marker is AlphaCase",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "good morning",
+      "expected": "catch_me_up",
+      "actual": {
+        "tool": "catch_me_up",
+        "args": {
+          "full": false,
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "give me my brief",
+      "expected": "daily_brief",
+      "actual": {
+        "tool": "daily_brief",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "brief me",
+      "expected": "daily_brief",
+      "actual": {
+        "tool": "catch_me_up",
+        "args": {
+          "full": false,
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "give me the full picture",
+      "expected": "daily_brief",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "give me the full picture",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "what is my morning summary",
+      "expected": "daily_brief",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "morning summary",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "what did I miss",
+      "expected": "catch_me_up",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "did I miss",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "standup moved to ten",
+      "expected": "correct",
+      "actual": {
+        "tool": "track",
+        "args": {
+          "project": "standup",
+          "status": "ten",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "it is eleven now",
+      "expected": "correct",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "it is eleven now",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "I was mistaken about standup",
+      "expected": "forget",
+      "actual": {
+        "tool": "wrong_about",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "what did I get wrong",
+      "expected": "wrong_about",
+      "actual": {
+        "tool": "wrong_about",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "which facts have the longest history",
+      "expected": "what_moved",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "which facts have the longest history",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "read my packing list",
+      "expected": "get_list",
+      "actual": {
+        "tool": "get_list",
+        "args": {
+          "list_name": "packing",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "put eggs on the grocery list",
+      "expected": "add_to_list",
+      "actual": {
+        "tool": "add_to_list",
+        "args": {
+          "item": "eggs",
+          "list_name": "grocery",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "cross off bread",
+      "expected": "remove_from_list",
+      "actual": {
+        "tool": "remove_from_list",
+        "args": {
+          "item": "bread",
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "update Amazon project to submitted",
+      "expected": "track",
+      "actual": {
+        "tool": "correct",
+        "args": {
+          "about": "Amazon project",
+          "new_fact": "Amazon project is submitted",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "log that EduPlay is in planning",
+      "expected": "track",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "log that EduPlay is in planning",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "what goals am I tracking",
+      "expected": "my_projects",
+      "actual": {
+        "tool": "my_projects",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what is today's date",
+      "expected": "what_time_is_it",
+      "actual": {
+        "tool": "what_time_is_it",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what did someone leave for me",
+      "expected": "shared_with_me",
+      "actual": {
+        "tool": "shared_with_me",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "don't let me forget the marker is CaseValue",
+      "expected": "remember",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "don't let me forget the marker is CaseValue",
+          "who": "default"
+        }
+      },
+      "pass": false
+    },
+    {
+      "phrase": "remind me about the dentist for the next 2 days",
+      "expected": "remember_for",
+      "actual": {
+        "tool": "remember_for",
+        "args": {
+          "fact": "about the dentist",
+          "until": "2 days",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "what have I believed about standup",
+      "expected": "timeline",
+      "actual": {
+        "tool": "timeline",
+        "args": {
+          "about": "standup",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "is it Friday yet",
+      "expected": "what_time_is_it",
+      "actual": {
+        "tool": "what_time_is_it",
+        "args": {
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "please add Milk to my shopping list",
+      "expected": "add_to_list",
+      "actual": {
+        "tool": "add_to_list",
+        "args": {
+          "item": "Milk",
+          "list_name": "shopping",
+          "who": "default"
+        }
+      },
+      "pass": true
+    },
+    {
+      "phrase": "can you remember that marker is AlphaCase",
+      "expected": "remember",
+      "actual": {
+        "tool": "recall",
+        "args": {
+          "about": "can you remember that marker is AlphaCase",
+          "who": "default"
+        }
+      },
+      "pass": false
+    }
+  ],
+  "source": [
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "0c721196a20a9e8d1fe6dd41d1709c3d13b8515aff4e74a9126b7cfcff6a760c"
+    },
+    {
+      "path": "TODO.md",
+      "sha256": "5003a0a8c7f2e7fd07d4ac560a6ef23275a65e37b5ca065070d40e3437bf8c33"
+    },
+    {
+      "path": "docs/archive/README-before-completion-2026-10-08.md",
+      "sha256": "0adaec3bc32986899ad6232d1e68725356ccb9130a0c6df37ad4ed57554ceee3"
+    },
+    {
+      "path": "docs/decisions/2026-10-08-simulation-boundary.md",
+      "sha256": "b128466b5f6cce0b5cd756d3fafc6c5e43aaef648caa52637c0a66472452db98"
+    },
+    {
+      "path": "docs/demo-script.md",
+      "sha256": "05d0e4bc4e65402d0ee3970d9dc359b462d207bd97431443aa0bff8d0de240c8"
+    },
+    {
+      "path": "docs/deployment-runbook.md",
+      "sha256": "08e45a816e3fb5ad445827637143dc3d84d8a460be04ce556cffe602c4b8e8c8"
+    },
+    {
+      "path": "docs/handoff.md",
+      "sha256": "f38329431ce79d337ab5d65f94ad9653098a8d291d7e400ba5608e4646b53107"
+    },
+    {
+      "path": "docs/qa/2026-10-08-completion.md",
+      "sha256": "b8257d7e6982f1e84b63fd9d316c0f54ea05ff5207ad86619da71be3c5f1ebed"
+    },
+    {
+      "path": "docs/qa/review-findings-2026-10-08.md",
+      "sha256": "b72977cbed57ca838732e68b89f8e048689cef3f8edce8432d5e06cc2ea9b75c"
+    },
+    {
+      "path": "docs/sessions/2026-10-08-completion.md",
+      "sha256": "9fe50c082ae06bd20563067b95e3033372629921a5dc5a2faf1fb74debf47011"
+    },
+    {
+      "path": "docs/submission.md",
+      "sha256": "bc084ae576162e52f9cbbc236b90630cbcc41f2e2a60e1d064d60b341ce62326"
+    },
+    {
+      "path": "plans/2026-10-08-alexa-completion.md",
+      "sha256": "7f6f36fa9a2022adfb9f6d77c0f80b6dd0cc270fcbb22b006427727dffa4f66d"
+    },
+    {
+      "path": "requirements-dev.txt",
+      "sha256": "eb29061337e71bec5cb0451d3ee258fa9108a9125bc7b786305c6d2285c04aab"
+    },
+    {
+      "path": "scripts/benchmark_mcp.py",
+      "sha256": "543535196a6c8106d7ad8a003cea9fc7f458116eab3e50a4dc735206581d6309"
+    },
+    {
+      "path": "server/api.py",
+      "sha256": "bb0663db4af7e0cc90e5d58abadaa02936e0d9c421e5a64cb5ad7f6254b09844"
+    },
+    {
+      "path": "server/safety.py",
+      "sha256": "06c375b362922ede70a7b2cec187de12be490c43d9d579601dcd304742644828"
+    },
+    {
+      "path": "tests/conftest.py",
+      "sha256": "1d45d7888b8f58479ba59cb88064b414d7c005ddea4525e197f12d09a025a5ea"
+    },
+    {
+      "path": "tests/test_api_integrity.py",
+      "sha256": "e7fde55ca2734ec486d71a8cff8538cbe61955606205b8a985ee0f263aa8f3f8"
+    },
+    {
+      "path": "tests/test_api_safety.py",
+      "sha256": "34bc1974cffcdffc079a50e36e3ea22d3385437915c86c5cdbeed136c2203836"
+    },
+    {
+      "path": "tests/test_browser.py",
+      "sha256": "8ddf72a31582e06ea98c63173a20b76e5e375d0476ddfc091c12d021baa0ab6b"
+    },
+    {
+      "path": "tests/test_capacity.py",
+      "sha256": "119b688c858f79a702573f4bdfa79996cdd9fae791fc78408cefa6bd0fb40a5c"
+    },
+    {
+      "path": "tests/test_live_browser.py",
+      "sha256": "8dae23086dec1db70f3f7f73b63e18a7cce9f67e35bfe95bb35651647a371bb6"
+    },
+    {
+      "path": "tests/test_review_regressions.py",
+      "sha256": "13400551d2829264aaf48bb23427b501739ecc1cf3f5c2eac8787c91450369d6"
+    },
+    {
+      "path": "tests/test_router.py",
+      "sha256": "266d1d8674e3d59ccdf63d75d81d37e642feb65042e9728048d4293fffb1b0c3"
+    },
+    {
+      "path": "tests/test_store_integrity.py",
+      "sha256": "39308e7fec5d9340b488d16e2f9ef623e66038923c184df12a1038ef871ca068"
+    },
+    {
+      "path": "tests/test_telegram.py",
+      "sha256": "38935d0bcffbbc48b973e8016ba3fede45f6eb5f39793bb59a15f0831316e688"
+    },
+    {
+      "path": "tests/test_tool_features.py",
+      "sha256": "e491dd501010e0c8ca17199c402d72e52b6219e04b5e39ba956d29e8db2b9b68"
+    },
+    {
+      "path": ".gitattributes",
+      "sha256": "6ef8e6d85c75879e4961cdee8c3b064ae2864173f5452b8a7e49fae612cc81e1"
+    },
+    {
+      "path": ".gitignore",
+      "sha256": "f5ff34298c18d4713f355f231ec64d7696bd43b72f54164f50e60f8e99fb084b"
+    },
+    {
+      "path": "FRICTION.md",
+      "sha256": "7aaf7ad3d69111b8bd30faddb13f02c6685b293d1203875dd63d4f411222ef4d"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "3e971d1ddc4749855156d4d829c8b0226d7d595e8e93149ccd22b99bdeda5513"
+    },
+    {
+      "path": "README.md",
+      "sha256": "a7d48e8692ff6e25bda405ecd1617a967739e49a34a4b9c59a8024f2a4f8d7ae"
+    },
+    {
+      "path": "core/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "core/budget.py",
+      "sha256": "16611a124905d49d2e825ab80c1e8ef79266bf0fb99f6a75fd5842a4672800ad"
+    },
+    {
+      "path": "core/daypart.py",
+      "sha256": "657dc16e9d5cfbdd00812fd592c0d247f28ad31332b56f5554f452f682304498"
+    },
+    {
+      "path": "core/insight.py",
+      "sha256": "a79a68d11dea435b06cdb49f3ee11e37c72f7540c46db12c4d5a779b2e47b094"
+    },
+    {
+      "path": "core/kernel.py",
+      "sha256": "1c540a72477636e0d5ce037436622ac3343a9ec5ecdb2eadcf7309f085f0fba4"
+    },
+    {
+      "path": "core/store.py",
+      "sha256": "eaf9999bad0f26122b59301f7120fa8bec26ba31ae0155915d33a5bae3fa449d"
+    },
+    {
+      "path": "core/tiers.py",
+      "sha256": "243315f63ea23a490728fa313ec7313e030facdc7f8684aeb082fefe3a31e29e"
+    },
+    {
+      "path": "core/wake.py",
+      "sha256": "2fd00c9ef0d894e18b63451deb53c5cb11a388d5f372a9e36fa5527fdb5a6fd3"
+    },
+    {
+      "path": "pytest.ini",
+      "sha256": "c809c969ec7e11b9ff37784e9c6fcc0b7c5148d168e18b05aed797e03fbd6ead"
+    },
+    {
+      "path": "requirements.txt",
+      "sha256": "5ea67edbbe3168c93bc68974e5b4e600a454d7064a13d6f3ae7e696342c32775"
+    },
+    {
+      "path": "server/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "server/app.py",
+      "sha256": "7d621168468859fbea88eaa1c0a6f28e9894ab4babcf3ac12853a662a5a08f4d"
+    },
+    {
+      "path": "server/demo.py",
+      "sha256": "75ca0624c2fa52c4839c099f9caa1568e22801a43a9198e238171465a5555e6f"
+    },
+    {
+      "path": "server/llm_router.py",
+      "sha256": "97757e157f5aac2d7a09435f4d667fb2967f2bdad88c2ab8809fc23083510050"
+    },
+    {
+      "path": "server/telegram_bridge.py",
+      "sha256": "78c7d64017491555306795da6a8c4286b2851e35e1c49778b0d3bd28dd2790d2"
+    },
+    {
+      "path": "server/tools.py",
+      "sha256": "ce62eedaa8b99f37ab9cde36cf71eff4153aa64f16b3635164692f4f7893178a"
+    },
+    {
+      "path": "tests/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tests/test_tools.py",
+      "sha256": "89a236a7388cf81772eae53711782e6a46ac998f013998d4c786af50ac6d046a"
+    },
+    {
+      "path": "tests/test_transport.py",
+      "sha256": "d1d04706547d0d82c34a917f7ab83d2313b35748968cf18caa6cb3c3acc2826a"
+    },
+    {
+      "path": "web/dashboard.html",
+      "sha256": "508ed4ef956e292d9fc56ec9882eeea513930fe9da2c6bd19bacbc9585385433"
+    },
+    {
+      "path": "web/index.html",
+      "sha256": "f162dd8458ec037599ccf8471dd8d7717e94924ed5f48e6070016fae488bde00"
+    },
+    {
+      "path": "web/timeline.html",
+      "sha256": "4a36f6d61cb8c7b6a4ee359befb9dda780de5c19e11c1f5cdf4bd073683b1134"
+    }
+  ],
+  "protocol": "2025-11-25",
+  "inventory": [
+    "catch_me_up",
+    "remember",
+    "recall",
+    "correct",
+    "forget",
+    "what_changed",
+    "wrong_about",
+    "remember_for",
+    "share",
+    "shared_with_me",
+    "what_moved",
+    "timeline",
+    "what_time_is_it",
+    "add_to_list",
+    "get_list",
+    "remove_from_list",
+    "track",
+    "daily_brief",
+    "my_projects",
+    "set_profile"
+  ],
+  "resource": {
+    "pass": true,
+    "mimeType": "text/html;profile=mcp-app"
+  },
+  "catalogue_complete": true,
+  "remote_embedded_credential": true,
+  "remote_safe_url": "https://github.com/hasifvev/Amazon-Alexa-Memory.git",
+  "summary": {
+    "wire_pass": 24,
+    "wire_total": 24,
+    "tools_exercised": 20,
+    "routing_pass": 40,
+    "routing_total": 52
+  }
+}

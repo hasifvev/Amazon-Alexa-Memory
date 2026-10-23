@@ -1,0 +1,60 @@
+{
+  "surfaces": [
+    {
+      "surface": "chat",
+      "width": 375,
+      "no_horizontal_overflow": true,
+      "visible_input": true
+    },
+    {
+      "surface": "timeline",
+      "width": 375,
+      "no_horizontal_overflow": true,
+      "two_entries": true
+    },
+    {
+      "surface": "dashboard",
+      "width": 375,
+      "no_horizontal_overflow": true,
+      "subject_cards": 1
+    },
+    {
+      "surface": "chat",
+      "width": 768,
+      "no_horizontal_overflow": true,
+      "visible_input": true
+    },
+    {
+      "surface": "timeline",
+      "width": 768,
+      "no_horizontal_overflow": true,
+      "two_entries": true
+    },
+    {
+      "surface": "dashboard",
+      "width": 768,
+      "no_horizontal_overflow": true,
+      "subject_cards": 1
+    },
+    {
+      "surface": "chat",
+      "width": 1440,
+      "no_horizontal_overflow": true,
+      "visible_input": true
+    },
+    {
+      "surface": "timeline",
+      "width": 1440,
+      "no_horizontal_overflow": true,
+      "two_entries": true
+    },
+    {
+      "surface": "dashboard",
+      "width": 1440,
+      "no_horizontal_overflow": true,
+      "subject_cards": 1
+    }
+  ],
+  "all_pass": true,
+  "screenshots": "C:\\Users\\hasif\\AppData\\Local\\Temp\\alexa-verify-20261021\\views-vf_9n6k7"
+}

@@ -1,0 +1,8 @@
+{
+  "daily_brief_interaction_count": {
+    "before": "Good morning! It's 8:17 AM on Wednesday. 1 new memory added in the last 24 hours.",
+    "after": "Good morning! It's 8:17 AM on Wednesday. 3 new memorys added in the last 24 hours.",
+    "pass": false
+  },
+  "runtime": "synthetic direct core, no external API"
+}
